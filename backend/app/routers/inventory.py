@@ -11,7 +11,8 @@ from app.models.user import User
 from app.models.inventory import Inventory, Product
 from app.models.sales import Sale
 from app.schemas.inventory import InventoryOut, InventoryUpdate, ProductCreate, ProductOut
-from app.services.ai.recommender import recommend_for_inventory, recommend_stock_transfer
+from app.services.ai.recommender import recommend_stock_transfer
+from app.services.inventory_recommendations import inventory_recommendation_objects
 
 router = APIRouter(prefix="/api/v1/inventory", tags=["Inventory"])
 
@@ -91,27 +92,12 @@ def reorder_recommendations(outlet_id: Optional[int] = None, db: Session = Depen
                              current_user: User = Depends(get_current_user)):
     """AI feature: 'Recommend reorder quantity' — flags SKUs at/below reorder level."""
     allowed = scoped_outlet_ids(current_user)
-    query = db.query(Inventory).join(Product, Product.id == Inventory.product_id)
+    if outlet_id and allowed is not None and outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
+
+    recommendations = inventory_recommendation_objects(db, outlet_id)
     if allowed is not None:
-        query = query.filter(Inventory.outlet_id.in_(allowed))
-    if outlet_id:
-        query = query.filter(Inventory.outlet_id == outlet_id)
-
-    since = date.today() - timedelta(days=30)
-    recommendations = []
-    for row in query.all():
-        avg_daily_sales = (
-            db.query(func.coalesce(func.sum(Sale.quantity), 0))
-            .filter(Sale.product_id == row.product_id, Sale.outlet_id == row.outlet_id, Sale.sale_date >= since)
-            .scalar() or 0
-        ) / 30
-
-        rec = recommend_for_inventory(
-            outlet_name=row.outlet.name, outlet_id=row.outlet_id, product_name=row.product.name,
-            quantity=row.quantity, reorder_level=row.product.reorder_level, avg_daily_sales=avg_daily_sales,
-        )
-        if rec:
-            recommendations.append(rec)
+        recommendations = [r for r in recommendations if r.outlet_id in allowed]
 
     return sorted(recommendations, key=lambda r: r.priority)
 

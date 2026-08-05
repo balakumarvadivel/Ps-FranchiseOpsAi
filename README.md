@@ -9,12 +9,55 @@ FastAPI backend, PostgreSQL database.
 |---|---|
 | 1. Architecture | ✅ Done — see `docs/ARCHITECTURE.md` |
 | 2. Database (schema + seed data) | ✅ Done — see `database/` |
-| 3. Backend — Auth, Outlets, Sales, Inventory, AI Insights | ✅ Done — see `backend/` |
-| 3. Backend — Staff, Marketing, Audit, Reports, Notifications routers | ⏳ Not yet built (same pattern as Outlets/Sales — see note in `backend/app/main.py`) |
-| 4. Frontend (React dashboard) | ⏳ Not yet built in this repo (a standalone dummy-data version was built earlier as a single-file artifact) |
-| 5–14 | ⏳ Not yet built |
+| 3. Backend — Auth, Outlets, Sales, Inventory, Staff, Marketing, Audit, AI Insights, Recommendations, Alerts, Notifications, Reports | ✅ Done — see `backend/` |
+| 4. Frontend — React + Vite + Tailwind, wired to every backend endpoint above (no dummy data) | ✅ Done — see `frontend/` |
+| 5. Data Validation & Processing — CSV/Excel upload, cleaning, data quality score | ✅ Done — `/app/data-validation` in the frontend, `services/data_validation.py` in the backend |
+| Alert scan scheduling | ✅ Done — runs automatically every 15 min via APScheduler (`services/scheduler.py`) |
+| Recommendation refresh scheduling | ⏳ Manual only (`POST /recommendations/refresh`) — intentionally not auto-scheduled since it clears open recommendations first |
+| 6–14 (remaining spec items) | Mostly already covered by what's built — see the module table below |
 
 This is being built incrementally, phase by phase, given the size of the full spec.
+
+
+## Frontend setup
+
+```bash
+cd frontend
+npm install
+cp .env.example .env      # only needed if backend is on a different origin
+npm run dev
+```
+Opens at http://localhost:5173. Requests to `/api/*` are proxied to the backend
+at `http://localhost:8000` by `vite.config.js` — make sure the backend is
+running first (see below), and that you've registered a user via `/register`.
+
+Every page — Dashboard, Outlet/Inventory/Staff/Marketing/Audit Agents,
+Intelligence Engine, Recommendations, Reports, Settings — calls the live
+FastAPI endpoints via React Query; there is no dummy/mock data in this build.
+I verified every relative import resolves, every named/default import matches
+a real export, and all 59 frontend API calls match an actual backend route —
+but I couldn't run `npm install`/`vite build` in this sandbox (no network
+access), so a first real build may still surface something a static check
+can't catch (e.g. a JSX typo) — if so, paste the error back and I'll fix it.
+
+
+## What each backend module covers
+
+| Module | Router | Key AI feature(s) |
+|---|---|---|
+| Auth | `/api/v1/auth` | JWT, RBAC (admin / regional_manager / outlet_manager), forgot/reset password |
+| Outlets | `/api/v1/outlets` | Outlet ranking with revenue, growth %, health score |
+| Sales | `/api/v1/sales` | Daily/Weekly/Monthly/Yearly trend aggregation |
+| Inventory | `/api/v1/inventory` | Reorder recommendations, outlet-to-outlet transfer suggestions |
+| Staff | `/api/v1/staff` | Performance score, attrition risk, best employee, shift optimization |
+| Marketing | `/api/v1/marketing` | Campaign ROI ranking, customer segmentation, budget optimization |
+| Audit | `/api/v1/audits` | Risk score, fraud-risk flag, compliance recommendation |
+| AI Insights | `/api/v1/ai` | Revenue forecasting (regression), outlet health breakdown, executive summary (NLG) |
+| Recommendations | `/api/v1/recommendations` | Persisted, prioritized business recommendations, refreshable on demand |
+| Alerts & Notifications | `/api/v1/alerts`, `/api/v1/notifications` | Auto-generated alerts (low stock, expiring stock, poor performance, staff shortage, audit due, campaign ending) |
+| Reports | `/api/v1/reports` | PDF / Excel / CSV generation for every domain, downloadable |
+| Data Validation | `/api/v1/data-validation` | CSV/Excel upload, missing/duplicate/invalid-value detection, data quality score, cleaning suggestions, commit-to-DB |
+
 
 ## Backend setup
 
@@ -63,16 +106,18 @@ Copy the `access_token` from the response and use the "Authorize" button in
 ## What's real vs. what's a placeholder right now
 
 - **Real, working logic**: password hashing + JWT auth, role-based access control,
-  outlet/sales/inventory CRUD, revenue forecasting (linear regression over actual
-  `sales` rows), outlet health score (weighted composite over actual attendance,
-  inventory, audit and sales data), rule-based recommendation engine, reorder and
-  stock-transfer suggestions, executive summary generation — all computed from
-  whatever is actually in your PostgreSQL database.
-- **Placeholder / next phase**: Staff, Marketing, and Audit each have DB tables and
-  models already, but dedicated routers/endpoints for them aren't built yet — they
-  follow the exact same `router → service → model` pattern as `outlets.py` /
-  `sales.py`, so extending is mostly copy-and-adapt. Reports (PDF/Excel/CSV
-  generation) and the notifications/alerts feed are also not yet wired up.
+  full CRUD across outlets/sales/inventory/staff/marketing/audits, revenue
+  forecasting (linear regression over actual `sales` rows), outlet health score
+  (weighted composite over actual attendance, inventory, audit and sales data),
+  employee performance score + rule-based attrition risk, campaign ROI ranking,
+  rule-based customer segmentation, audit risk/fraud scoring, a rule-based
+  recommendation engine (persisted + refreshable), an alert scanner that inspects
+  live data and creates alerts, and PDF/Excel/CSV report generation — all computed
+  from whatever is actually in your PostgreSQL database, nothing hardcoded.
+- **Not yet built**: the React frontend for this backend (Phase 4), the Data
+  Validation & Processing CSV/Excel upload module (Phase 5), and the alert scan /
+  recommendation refresh are currently manually triggered via API rather than run
+  on a schedule (wire up a cron job or APScheduler for that in production).
 
 ## Repository layout
 See `docs/ARCHITECTURE.md` for the full folder structure, system diagram, and
