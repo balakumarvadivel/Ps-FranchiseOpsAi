@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Numeric, Date, Time, UniqueConstraint
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Numeric, Date, Time, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -21,6 +21,7 @@ class Employee(Base):
     shifts = relationship("Shift", back_populates="employee", cascade="all, delete-orphan")
     attendance_records = relationship("Attendance", back_populates="employee", cascade="all, delete-orphan")
     payroll_records = relationship("Payroll", back_populates="employee", cascade="all, delete-orphan")
+    leave_requests = relationship("LeaveRequest", back_populates="employee", cascade="all, delete-orphan")
 
 
 class Shift(Base):
@@ -64,3 +65,20 @@ class Payroll(Base):
     paid_on = Column(Date, nullable=True)
 
     employee = relationship("Employee", back_populates="payroll_records")
+
+
+class LeaveRequest(Base):
+    __tablename__ = "leave_requests"
+
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    leave_type = Column(String(30), default="casual")  # casual | sick | earned | unpaid
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    reason = Column(Text, nullable=True)
+    status = Column(String(20), default="pending")  # pending | approved | rejected
+    requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    decided_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    employee = relationship("Employee", back_populates="leave_requests")

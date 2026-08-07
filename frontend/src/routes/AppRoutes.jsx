@@ -17,6 +17,7 @@ import IntelligenceEngine from "../pages/intelligence-engine/IntelligenceEngine"
 import Recommendations from "../pages/recommendations/Recommendations";
 import Reports from "../pages/reports/Reports";
 import Settings from "../pages/settings/Settings";
+import Admin from "../pages/admin/Admin";
 import NotFound from "../pages/NotFound";
 
 export function AppRoutes() {
@@ -47,6 +48,14 @@ export function AppRoutes() {
         <Route path="recommendations" element={<Recommendations />} />
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />
+        <Route
+          path="admin"
+          element={
+            <ProtectedRoute allowedRoles={["admin", "regional_manager"]}>
+              <Admin />
+            </ProtectedRoute>
+          }
+        />
       </Route>
 
       <Route path="*" element={<NotFound />} />

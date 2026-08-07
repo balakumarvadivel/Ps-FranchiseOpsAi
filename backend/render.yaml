@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: franchiseops-api
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: franchiseops-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENV
+        value: production
+      - key: FRONTEND_ORIGINS
+        value: '["https://your-frontend.vercel.app"]'
+
+databases:
+  - name: franchiseops-db
+    plan: free
+    region: singapore

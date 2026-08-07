@@ -5,6 +5,8 @@ export const aiService = {
   forecastRevenue: (params = {}) => api.get("/ai/forecast/revenue", { params }).then((r) => r.data),
   recommendations: () => api.get("/ai/recommendations").then((r) => r.data),
   executiveSummary: () => api.get("/ai/executive-summary").then((r) => r.data),
+  profitTrend: (params = {}) => api.get("/ai/trend/profit", { params }).then((r) => r.data),
+  salesAnomalies: (params = {}) => api.get("/ai/anomalies/sales", { params }).then((r) => r.data),
 };
 
 export const recommendationService = {

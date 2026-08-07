@@ -7,11 +7,32 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ---------------------------------------------------------------------
--- ROLES & USERS (Authentication)
+-- ROLES, PERMISSIONS & USERS (Authentication)
 -- ---------------------------------------------------------------------
 CREATE TABLE roles (
     id              SERIAL PRIMARY KEY,
     name            VARCHAR(50) UNIQUE NOT NULL,        -- admin | regional_manager | outlet_manager
+    description     TEXT
+);
+
+CREATE TABLE permissions (
+    id              SERIAL PRIMARY KEY,
+    code            VARCHAR(80) UNIQUE NOT NULL,         -- e.g. 'outlets.write', 'reports.generate'
+    description     TEXT
+);
+
+CREATE TABLE role_permissions (
+    role_id         INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id   INTEGER NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    PRIMARY KEY (role_id, permission_id)
+);
+
+-- ---------------------------------------------------------------------
+-- REGIONS
+-- ---------------------------------------------------------------------
+CREATE TABLE regions (
+    name            VARCHAR(50) PRIMARY KEY,             -- e.g. 'South' — kept as the PK so outlets.region
+                                                            -- can reference it without a breaking column-type change
     description     TEXT
 );
 
@@ -21,7 +42,7 @@ CREATE TABLE outlets (
     code            VARCHAR(20) UNIQUE NOT NULL,
     city            VARCHAR(100) NOT NULL,
     state           VARCHAR(100) NOT NULL,
-    region          VARCHAR(50)  NOT NULL,               -- North | South | East | West
+    region          VARCHAR(50) NOT NULL REFERENCES regions(name),
     address         TEXT,
     latitude        NUMERIC(9,6),
     longitude       NUMERIC(9,6),
@@ -180,6 +201,21 @@ CREATE TABLE payroll (
     UNIQUE (employee_id, month)
 );
 
+CREATE TABLE leave_requests (
+    id              SERIAL PRIMARY KEY,
+    employee_id     INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    leave_type      VARCHAR(30) NOT NULL DEFAULT 'casual',   -- casual | sick | earned | unpaid
+    start_date      DATE NOT NULL,
+    end_date        DATE NOT NULL,
+    reason          TEXT,
+    status          VARCHAR(20) DEFAULT 'pending',            -- pending | approved | rejected
+    requested_at    TIMESTAMPTZ DEFAULT now(),
+    decided_at      TIMESTAMPTZ,
+    decided_by      INTEGER REFERENCES users(id)
+);
+CREATE INDEX idx_leave_employee ON leave_requests(employee_id);
+CREATE INDEX idx_leave_status ON leave_requests(status);
+
 -- ---------------------------------------------------------------------
 -- MARKETING
 -- ---------------------------------------------------------------------
@@ -298,10 +334,44 @@ CREATE TABLE settings (
 );
 
 -- ---------------------------------------------------------------------
--- SEED ROLES
+-- SEED ROLES, REGIONS & PERMISSIONS
 -- ---------------------------------------------------------------------
 INSERT INTO roles (name, description) VALUES
     ('admin', 'Full system access across all outlets'),
     ('regional_manager', 'Access to all outlets within an assigned region'),
     ('outlet_manager', 'Access limited to a single assigned outlet')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO regions (name, description) VALUES
+    ('North', 'Northern region outlets'),
+    ('South', 'Southern region outlets'),
+    ('East', 'Eastern region outlets'),
+    ('West', 'Western region outlets')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO permissions (code, description) VALUES
+    ('outlets.read', 'View outlet data'),
+    ('outlets.write', 'Create/edit/delete outlets'),
+    ('users.manage', 'Manage user accounts and roles'),
+    ('reports.generate', 'Generate and download reports'),
+    ('recommendations.refresh', 'Trigger a full recommendation engine refresh'),
+    ('audits.manage', 'Schedule audits and record findings'),
+    ('data.import', 'Upload and commit validated data')
+ON CONFLICT DO NOTHING;
+
+-- admin: everything
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r CROSS JOIN permissions p WHERE r.name = 'admin'
+ON CONFLICT DO NOTHING;
+
+-- regional_manager: everything except user management
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+WHERE r.name = 'regional_manager' AND p.code != 'users.manage'
+ON CONFLICT DO NOTHING;
+
+-- outlet_manager: read-only + data import
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+WHERE r.name = 'outlet_manager' AND p.code IN ('outlets.read', 'data.import')
 ON CONFLICT DO NOTHING;

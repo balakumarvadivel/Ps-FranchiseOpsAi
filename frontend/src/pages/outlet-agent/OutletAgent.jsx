@@ -10,6 +10,7 @@ import { HealthGauge } from "../../components/common/HealthGauge";
 import { DataTable } from "../../components/common/DataTable";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { ChartTooltip } from "../../components/charts/ChartTooltip";
+import { DateRangePicker } from "../../components/common/DateRangePicker";
 import { CardSkeleton, ErrorState } from "../../components/common/States";
 
 import { outletService, salesService } from "../../services/outletService";
@@ -21,9 +22,17 @@ const PERIODS = ["Daily", "Weekly", "Monthly", "Yearly"];
 export default function OutletAgent() {
   const [period, setPeriod] = useState("Monthly");
   const [forecastRange, setForecastRange] = useState("30D");
+  const [dateRange, setDateRange] = useState({ from: null, to: null });
 
   const rankingQ = useQuery({ queryKey: ["outlets", "ranking", 30], queryFn: () => outletService.ranking(30) });
-  const trendQ = useQuery({ queryKey: ["sales", "trend", period], queryFn: () => salesService.trend({ period }) });
+  const trendQ = useQuery({
+    queryKey: ["sales", "trend", period, dateRange.from, dateRange.to],
+    queryFn: () => salesService.trend({
+      period,
+      ...(dateRange.from ? { date_from: dateRange.from } : {}),
+      ...(dateRange.to ? { date_to: dateRange.to } : {}),
+    }),
+  });
   const forecastQ = useQuery({
     queryKey: ["ai", "forecast", forecastRange],
     queryFn: () => aiService.forecastRevenue({ range: forecastRange }),
@@ -74,13 +83,16 @@ export default function OutletAgent() {
             <h2 className="font-semibold text-slate-900 dark:text-white">Outlet Sales Performance</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">Revenue by period, aggregated from live sales data</p>
           </div>
-          <div className="flex bg-slate-100 dark:bg-slate-800/60 rounded-lg p-1">
-            {PERIODS.map((p) => (
-              <button key={p} onClick={() => setPeriod(p)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${period === p ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm" : "text-slate-500 dark:text-slate-400"}`}>
-                {p}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <div className="flex bg-slate-100 dark:bg-slate-800/60 rounded-lg p-1">
+              {PERIODS.map((p) => (
+                <button key={p} onClick={() => setPeriod(p)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${period === p ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm" : "text-slate-500 dark:text-slate-400"}`}>
+                  {p}
+                </button>
+              ))}
+            </div>
+            <DateRangePicker value={dateRange} onChange={setDateRange} />
           </div>
         </div>
         {trendQ.isLoading ? <CardSkeleton /> : trendQ.isError ? (

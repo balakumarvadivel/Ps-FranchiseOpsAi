@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.marketing_audit import Audit, AuditReport
 from app.schemas.audit import AuditCreate, AuditComplete, AuditReportCreate, AuditOut, AuditReportOut
 from app.services.ai.audit_ai import compute_audit_risk, compliance_recommendation
+from app.services.ai.anomaly import iqr_anomalies
 
 router = APIRouter(prefix="/api/v1/audits", tags=["Audit Agent"])
 
@@ -84,6 +85,18 @@ def get_audit_reports(audit_id: int, db: Session = Depends(get_db), current_user
     return db.query(AuditReport).filter(AuditReport.audit_id == audit_id).all()
 
 
+@router.put("/reports/{report_id}/resolve", response_model=AuditReportOut,
+            dependencies=[Depends(require_role("admin", "regional_manager", "outlet_manager"))])
+def resolve_audit_finding(report_id: int, db: Session = Depends(get_db)):
+    report = db.query(AuditReport).filter(AuditReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Finding not found")
+    report.resolved = True
+    db.commit()
+    db.refresh(report)
+    return report
+
+
 @router.get("/{audit_id}/risk")
 def get_audit_risk(audit_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """AI feature: Risk Detection, Fraud Detection, Risk Score."""
@@ -110,3 +123,44 @@ def risk_overview(db: Session = Depends(get_db), current_user: User = Depends(ge
         results.append(risk_data)
 
     return sorted(results, key=lambda r: r["risk_score"], reverse=True)
+
+
+@router.get("/compliance/trend")
+def compliance_trend(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Compliance score over time — powers the Audit Score Trend chart."""
+    allowed = scoped_outlet_ids(current_user)
+    query = db.query(Audit).filter(Audit.status == "completed", Audit.completed_date.isnot(None))
+    if allowed is not None:
+        query = query.filter(Audit.outlet_id.in_(allowed))
+
+    audits = sorted(query.all(), key=lambda a: a.completed_date)
+    return [
+        {"date": a.completed_date.strftime("%Y-%m-%d"), "outlet_id": a.outlet_id, "compliance_score": float(a.compliance_score or 0)}
+        for a in audits
+    ]
+
+
+@router.get("/compliance/anomalies")
+def compliance_anomalies(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    AI feature: Anomaly Detection (IQR method) across all completed audits'
+    compliance scores — flags outlets whose score is unusually far from the
+    network's typical range, which is a different (more robust to a few bad
+    outliers) signal than the risk score alone.
+    """
+    allowed = scoped_outlet_ids(current_user)
+    query = db.query(Audit).filter(Audit.status == "completed", Audit.compliance_score.isnot(None))
+    if allowed is not None:
+        query = query.filter(Audit.outlet_id.in_(allowed))
+
+    audits = query.all()
+    if len(audits) < 4:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not enough completed audits to detect anomalies (need 4+)")
+
+    scores = [float(a.compliance_score) for a in audits]
+    flags = iqr_anomalies(scores)
+
+    return [
+        {"audit_id": audits[i].id, "outlet_id": audits[i].outlet_id, "compliance_score": scores[i]}
+        for i in range(len(audits)) if flags[i]
+    ]

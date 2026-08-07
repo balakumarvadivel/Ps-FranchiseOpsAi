@@ -11,6 +11,7 @@ import app.models  # noqa: F401
 from app.routers import (
     auth, outlets, sales, inventory, ai_insights,
     staff, marketing, audit, alerts, recommendations, reports, data_validation,
+    users, search, permissions,
 )
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -47,6 +48,9 @@ app.include_router(alerts.router)
 app.include_router(recommendations.router)
 app.include_router(reports.router)
 app.include_router(data_validation.router)
+app.include_router(users.router)
+app.include_router(search.router)
+app.include_router(permissions.router)
 
 
 @app.get("/", tags=["Health"])

@@ -80,10 +80,12 @@ def list_sales(
 def sales_trend(
     outlet_id: Optional[int] = None,
     period: str = Query("Monthly", pattern="^(Daily|Weekly|Monthly|Yearly)$"),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Powers the Daily/Weekly/Monthly/Yearly sales performance chart."""
+    """Powers the Daily/Weekly/Monthly/Yearly sales performance chart. Pass date_from/date_to to override the default lookback window."""
     allowed = scoped_outlet_ids(current_user)
     if outlet_id and allowed is not None and outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
@@ -96,7 +98,7 @@ def sales_trend(
     }[period]
 
     lookback = {"Daily": 30, "Weekly": 90, "Monthly": 365, "Yearly": 365 * 5}[period]
-    since = date.today() - timedelta(days=lookback)
+    since = date_from or (date.today() - timedelta(days=lookback))
 
     query = db.query(
         bucket_expr.label("bucket"),
@@ -104,6 +106,8 @@ def sales_trend(
         func.count(Sale.id).label("orders"),
     ).filter(Sale.sale_date >= since)
 
+    if date_to:
+        query = query.filter(Sale.sale_date <= date_to)
     if allowed is not None:
         query = query.filter(Sale.outlet_id.in_(allowed))
     if outlet_id:
@@ -114,3 +118,26 @@ def sales_trend(
         SalesTrendPoint(label=row.bucket.strftime("%d %b %Y"), revenue=float(row.revenue), orders=row.orders)
         for row in rows
     ]
+
+
+@router.get("/category-performance")
+def category_performance(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    """Revenue and units sold by product category — powers the Category Performance chart."""
+    allowed = scoped_outlet_ids(current_user)
+    since = date.today() - timedelta(days=days)
+
+    query = (
+        db.query(
+            Product.category.label("category"),
+            func.sum(Sale.total_amount).label("revenue"),
+            func.sum(Sale.quantity).label("units"),
+        )
+        .join(Product, Product.id == Sale.product_id)
+        .filter(Sale.sale_date >= since)
+    )
+    if allowed is not None:
+        query = query.filter(Sale.outlet_id.in_(allowed))
+
+    rows = query.group_by(Product.category).order_by(func.sum(Sale.total_amount).desc()).all()
+    return [{"category": r.category, "revenue": float(r.revenue or 0), "units": int(r.units or 0)} for r in rows]

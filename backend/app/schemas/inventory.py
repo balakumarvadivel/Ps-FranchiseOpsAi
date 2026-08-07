@@ -38,9 +38,39 @@ class InventoryOut(BaseModel):
         from_attributes = True
 
 
+class SupplierCreate(BaseModel):
+    name: str
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    rating: float = 0
+
+
+class SupplierOut(SupplierCreate):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
 class BatchCreate(BaseModel):
     inventory_id: int
     batch_number: str
     quantity: int = Field(..., gt=0)
     manufactured_on: Optional[date] = None
     expiry_date: Optional[date] = None
+
+
+class BatchOut(BaseModel):
+    id: int
+    inventory_id: int
+    batch_number: str
+    quantity: int
+    manufactured_on: Optional[date]
+    expiry_date: Optional[date]
+    product_name: str
+    outlet_name: str
+
+    class Config:
+        from_attributes = True

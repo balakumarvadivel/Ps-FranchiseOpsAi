@@ -37,12 +37,67 @@ class ShiftCreate(BaseModel):
     end_time: time
 
 
+class ShiftOut(BaseModel):
+    id: int
+    employee_id: int
+    employee_name: str
+    shift_date: date
+    start_time: time
+    end_time: time
+    status: str
+
+    class Config:
+        from_attributes = True
+
+
 class PayrollCreate(BaseModel):
     employee_id: int
     month: date
     base_salary: float = Field(..., gt=0)
     overtime_pay: float = 0
     deductions: float = 0
+
+
+class PayrollOut(BaseModel):
+    id: int
+    employee_id: int
+    employee_name: str
+    month: date
+    base_salary: float
+    overtime_pay: float
+    deductions: float
+    net_pay: float
+    paid_on: Optional[date]
+
+    class Config:
+        from_attributes = True
+
+
+class LeaveRequestCreate(BaseModel):
+    employee_id: int
+    leave_type: str = Field("casual", pattern="^(casual|sick|earned|unpaid)$")
+    start_date: date
+    end_date: date
+    reason: Optional[str] = None
+
+
+class LeaveRequestOut(BaseModel):
+    id: int
+    employee_id: int
+    employee_name: str
+    leave_type: str
+    start_date: date
+    end_date: date
+    reason: Optional[str]
+    status: str
+    requested_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LeaveDecision(BaseModel):
+    status: str = Field(..., pattern="^(approved|rejected)$")
 
 
 class EmployeePerformance(BaseModel):

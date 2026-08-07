@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Menu, Search, Bell, Sun, Moon, Sparkles, LogOut } from "lucide-react";
+import { Menu, Search, Bell, Sun, Moon, Sparkles, LogOut, Store, Package, User as UserIcon } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { alertService } from "../../services/aiService";
+import { searchService } from "../../services/searchService";
 
 export function Navbar({ onMenuClick }) {
   const { dark, toggleTheme } = useTheme();
@@ -12,10 +13,27 @@ export function Navbar({ onMenuClick }) {
   const navigate = useNavigate();
   const [now, setNow] = useState(new Date());
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedTerm, setDebouncedTerm] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchBoxRef = useRef(null);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedTerm(searchTerm), 350);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) setSearchOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const { data: alerts } = useQuery({
@@ -26,6 +44,12 @@ export function Navbar({ onMenuClick }) {
   });
   const unreadCount = alerts?.length || 0;
 
+  const searchQ = useQuery({
+    queryKey: ["search", debouncedTerm],
+    queryFn: () => searchService.search(debouncedTerm),
+    enabled: debouncedTerm.length >= 2,
+  });
+
   const initials = (user?.full_name || "U")
     .split(" ")
     .map((p) => p[0])
@@ -33,18 +57,71 @@ export function Navbar({ onMenuClick }) {
     .join("")
     .toUpperCase();
 
+  const goToOutlet = () => { navigate("/app/outlets"); setSearchOpen(false); setSearchTerm(""); };
+  const goToInventory = () => { navigate("/app/inventory"); setSearchOpen(false); setSearchTerm(""); };
+  const goToStaff = () => { navigate("/app/staff"); setSearchOpen(false); setSearchTerm(""); };
+
+  const results = searchQ.data;
+  const hasResults = results && (results.outlets.length || results.products.length || results.employees.length);
+
   return (
     <header className="sticky top-0 z-20 h-16 border-b border-slate-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl flex items-center gap-4 px-4 lg:px-8">
       <button className="lg:hidden" onClick={onMenuClick}>
         <Menu size={20} />
       </button>
 
-      <div className="relative hidden md:block w-72">
+      <div ref={searchBoxRef} className="relative hidden md:block w-72">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         <input
-          placeholder="Search outlets, reports, insights..."
+          value={searchTerm}
+          onChange={(e) => { setSearchTerm(e.target.value); setSearchOpen(true); }}
+          onFocus={() => setSearchOpen(true)}
+          placeholder="Search outlets, products, staff..."
           className="w-full pl-9 pr-3 py-2 text-sm rounded-xl bg-slate-100/80 dark:bg-slate-800/60 border border-transparent focus:border-blue-400 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
         />
+
+        {searchOpen && debouncedTerm.length >= 2 && (
+          <div className="absolute left-0 right-0 mt-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-2 max-h-80 overflow-y-auto z-30">
+            {searchQ.isLoading ? (
+              <p className="text-xs text-slate-400 px-2 py-3">Searching...</p>
+            ) : !hasResults ? (
+              <p className="text-xs text-slate-400 px-2 py-3">No results for "{debouncedTerm}"</p>
+            ) : (
+              <>
+                {results.outlets.length > 0 && (
+                  <div className="mb-1">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400 px-2 py-1">Outlets</p>
+                    {results.outlets.map((o) => (
+                      <button key={`o-${o.id}`} onClick={goToOutlet} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-left">
+                        <Store size={14} className="text-blue-500 shrink-0" /> {o.name} <span className="text-xs text-slate-400">· {o.city}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {results.products.length > 0 && (
+                  <div className="mb-1">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400 px-2 py-1">Products</p>
+                    {results.products.map((p) => (
+                      <button key={`p-${p.id}`} onClick={goToInventory} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-left">
+                        <Package size={14} className="text-purple-500 shrink-0" /> {p.name} <span className="text-xs text-slate-400">· {p.sku}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {results.employees.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400 px-2 py-1">Employees</p>
+                    {results.employees.map((e) => (
+                      <button key={`e-${e.id}`} onClick={goToStaff} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-left">
+                        <UserIcon size={14} className="text-emerald-500 shrink-0" /> {e.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="ml-auto flex items-center gap-2 lg:gap-3">

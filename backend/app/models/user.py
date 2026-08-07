@@ -1,8 +1,25 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, Numeric, Date
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, Numeric, Date, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+
+# Many-to-many join table for role <-> permission
+role_permissions = Table(
+    "role_permissions", Base.metadata,
+    Column("role_id", Integer, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+    Column("permission_id", Integer, ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
+class Permission(Base):
+    __tablename__ = "permissions"
+
+    id = Column(Integer, primary_key=True)
+    code = Column(String(80), unique=True, nullable=False)
+    description = Column(Text)
+
+    roles = relationship("Role", secondary=role_permissions, back_populates="permissions")
 
 
 class Role(Base):
@@ -13,6 +30,17 @@ class Role(Base):
     description = Column(Text)
 
     users = relationship("User", back_populates="role")
+    permissions = relationship("Permission", secondary=role_permissions, back_populates="roles")
+
+    def has_permission(self, code: str) -> bool:
+        return any(p.code == code for p in self.permissions)
+
+
+class Region(Base):
+    __tablename__ = "regions"
+
+    name = Column(String(50), primary_key=True)
+    description = Column(Text)
 
 
 class Outlet(Base):
@@ -23,7 +51,7 @@ class Outlet(Base):
     code = Column(String(20), unique=True, nullable=False)
     city = Column(String(100), nullable=False)
     state = Column(String(100), nullable=False)
-    region = Column(String(50), nullable=False)
+    region = Column(String(50), ForeignKey("regions.name"), nullable=False)
     address = Column(Text)
     latitude = Column(Numeric(9, 6))
     longitude = Column(Numeric(9, 6))
@@ -32,6 +60,7 @@ class Outlet(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    region_ref = relationship("Region")
     users = relationship("User", back_populates="outlet")
     sales = relationship("Sale", back_populates="outlet")
     inventory = relationship("Inventory", back_populates="outlet")

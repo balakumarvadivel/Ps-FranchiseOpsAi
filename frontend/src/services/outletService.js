@@ -13,4 +13,5 @@ export const salesService = {
   list: (params = {}) => api.get("/sales", { params }).then((r) => r.data),
   create: (payload) => api.post("/sales", payload).then((r) => r.data),
   trend: (params = {}) => api.get("/sales/trend", { params }).then((r) => r.data),
+  categoryPerformance: (params = {}) => api.get("/sales/category-performance", { params }).then((r) => r.data),
 };

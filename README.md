@@ -5,18 +5,28 @@ FastAPI backend, PostgreSQL database.
 
 ## Build status
 
-| Phase | Status |
-|---|---|
-| 1. Architecture | ✅ Done — see `docs/ARCHITECTURE.md` |
-| 2. Database (schema + seed data) | ✅ Done — see `database/` |
-| 3. Backend — Auth, Outlets, Sales, Inventory, Staff, Marketing, Audit, AI Insights, Recommendations, Alerts, Notifications, Reports | ✅ Done — see `backend/` |
-| 4. Frontend — React + Vite + Tailwind, wired to every backend endpoint above (no dummy data) | ✅ Done — see `frontend/` |
-| 5. Data Validation & Processing — CSV/Excel upload, cleaning, data quality score | ✅ Done — `/app/data-validation` in the frontend, `services/data_validation.py` in the backend |
-| Alert scan scheduling | ✅ Done — runs automatically every 15 min via APScheduler (`services/scheduler.py`) |
-| Recommendation refresh scheduling | ⏳ Manual only (`POST /recommendations/refresh`) — intentionally not auto-scheduled since it clears open recommendations first |
-| 6–14 (remaining spec items) | Mostly already covered by what's built — see the module table below |
+Everything from the original spec is now built:
 
-This is being built incrementally, phase by phase, given the size of the full spec.
+| Area | Status |
+|---|---|
+| Architecture, database, backend (8 domains + AI layer), frontend (all pages live-wired) | ✅ Done |
+| Data Validation & Processing | ✅ Done |
+| Alert scheduling (every 15 min) | ✅ Done |
+| Automated tests (pytest) | ✅ Done |
+| Deployment configs (Render + Vercel) | ✅ Done |
+| Admin: user management, outlet management | ✅ Done |
+| Regions as a normalized table (FK from `outlets.region`) | ✅ Done |
+| Permissions table + role-permission matrix (view/edit in Admin UI) | ✅ Done |
+| Leave management (request/approve/reject) | ✅ Done — this didn't exist at all before; added the full table, model, endpoints, and UI |
+| Payroll & shift listing/scheduling UI | ✅ Done |
+| Individual audit findings (add/view/resolve) | ✅ Done |
+| Global search, date range picker | ✅ Done |
+| Inventory: suppliers, batch/expiry tracking, value/turnover | ✅ Done |
+| Dashboard: profit trend, category performance, regional performance, cross-domain summary cards | ✅ Done |
+| Anomaly detection (z-score sales, IQR audit compliance) | ✅ Done — wired into real endpoints, not just written and unused |
+
+
+
 
 
 ## Frontend setup
@@ -103,21 +113,57 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
 Copy the `access_token` from the response and use the "Authorize" button in
 `/docs` (prefix with `Bearer `) to call protected endpoints.
 
-## What's real vs. what's a placeholder right now
+## Honest caveats
 
-- **Real, working logic**: password hashing + JWT auth, role-based access control,
-  full CRUD across outlets/sales/inventory/staff/marketing/audits, revenue
-  forecasting (linear regression over actual `sales` rows), outlet health score
-  (weighted composite over actual attendance, inventory, audit and sales data),
-  employee performance score + rule-based attrition risk, campaign ROI ranking,
-  rule-based customer segmentation, audit risk/fraud scoring, a rule-based
-  recommendation engine (persisted + refreshable), an alert scanner that inspects
-  live data and creates alerts, and PDF/Excel/CSV report generation — all computed
-  from whatever is actually in your PostgreSQL database, nothing hardcoded.
-- **Not yet built**: the React frontend for this backend (Phase 4), the Data
-  Validation & Processing CSV/Excel upload module (Phase 5), and the alert scan /
-  recommendation refresh are currently manually triggered via API rather than run
-  on a schedule (wire up a cron job or APScheduler for that in production).
+Every module described above is implemented with real, non-mocked logic —
+but a few things are worth knowing before you present or deploy this:
+
+- **Nothing has been run end-to-end.** This sandbox has no network access, so
+  I could never `npm install`, `pip install`, or connect to a live
+  PostgreSQL/FastAPI/Vite dev server. Everything was verified statically:
+  every Python file compiles, every JS/JSX import resolves to a real export,
+  every frontend API call matches a real backend route (85/85 at last count),
+  and the pure-logic AI functions (forecasting, anomaly detection, health
+  scoring math, recommender, NLG, data validation) were manually executed
+  and passed in this environment. The FastAPI integration tests in
+  `backend/tests/` are written and structurally sound but not executable
+  here — run `pytest` yourself for the first real signal on those.
+- **First real run may surface something.** A typo an import-check can't
+  catch, a version mismatch in `requirements.txt`/`package.json`, or a
+  Postgres-specific SQL quirk are all plausible on a project this size. If
+  something breaks, paste the error back and I'll fix it directly.
+- **Scale/polish not attempted**: no pagination on a few list endpoints that
+  could return large result sets in production, no rate limiting, no email
+  service wired up (password reset returns the token directly rather than
+  emailing it — clearly marked as a dev-only shortcut in the code), and the
+  recommendation engine's `refresh` is manual rather than scheduled (see the
+  build status table above for why).
+
+## Running tests
+
+```bash
+cd backend
+pip install -r requirements.txt
+pytest
+```
+Uses an in-memory SQLite database, so no PostgreSQL setup is needed just to
+run tests. Note: endpoints using PostgreSQL-specific `date_trunc` (sales
+trend, profit trend, category performance) aren't covered by the SQLite
+integration tests for that reason — the AI service functions they depend on
+(forecasting, anomaly detection, recommender, NLG) are unit-tested directly
+instead.
+
+## Deployment
+
+- **Backend → Render**: `backend/render.yaml` provisions a web service + free
+  Postgres DB. A `Dockerfile` is also included if you'd rather deploy the
+  backend anywhere else that takes a container.
+- **Frontend → Vercel**: `frontend/vercel.json` configures the Vite build and
+  SPA routing rewrites. Set `VITE_API_BASE_URL` in Vercel's environment
+  variables to your deployed backend URL.
+- After deploying, run `database/schema.sql` (and optionally `seed.sql`)
+  against the production database, and set `FRONTEND_ORIGINS` in the
+  backend's environment to your Vercel URL so CORS allows it.
 
 ## Repository layout
 See `docs/ARCHITECTURE.md` for the full folder structure, system diagram, and

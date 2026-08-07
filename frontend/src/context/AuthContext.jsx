@@ -2,20 +2,11 @@ import { createContext, useContext, useState, useCallback } from "react";
 import { authService } from "../services/authService";
 
 const AuthContext = createContext(null);
-const DEFAULT_USER = {
-  id: 0,
-  full_name: "Demo Admin",
-  email: "admin@franchiseops.ai",
-  role: "admin",
-  outlet_id: null,
-};
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     const stored = localStorage.getItem("user");
-    if (stored) return JSON.parse(stored);
-    localStorage.setItem("user", JSON.stringify(DEFAULT_USER));
-    return DEFAULT_USER;
+    return stored ? JSON.parse(stored) : null;
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);

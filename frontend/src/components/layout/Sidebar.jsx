@@ -1,10 +1,11 @@
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, Store, Boxes, Users, Megaphone, ShieldCheck, Brain,
-  Lightbulb, FileBarChart, Settings, Sparkles, X, Zap, UploadCloud,
+  Lightbulb, FileBarChart, Settings, Sparkles, X, Zap, UploadCloud, UserCog,
 } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 
-const navItems = [
+const baseNavItems = [
   { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/app/data-validation", label: "Data Validation", icon: UploadCloud },
   { to: "/app/outlets", label: "Outlet Performance Agent", icon: Store },
@@ -18,7 +19,14 @@ const navItems = [
   { to: "/app/settings", label: "Settings", icon: Settings },
 ];
 
+const adminNavItem = { to: "/app/admin", label: "Admin", icon: UserCog };
+
 export function Sidebar({ open, onClose }) {
+  const { user } = useAuth();
+  const navItems = ["admin", "regional_manager"].includes(user?.role)
+    ? [...baseNavItems.slice(0, -1), adminNavItem, baseNavItems[baseNavItems.length - 1]]
+    : baseNavItems;
+
   return (
     <>
       <aside

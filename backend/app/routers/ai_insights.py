@@ -8,9 +8,11 @@ from app.core.deps import get_current_user, scoped_outlet_ids
 from app.database import get_db
 from app.models.user import User, Outlet
 from app.models.sales import Sale
+from app.models.inventory import Product
 from app.models.marketing_audit import Audit
 from app.services.ai.health_score import compute_outlet_health_score, compute_outlet_health_breakdown
 from app.services.ai.forecasting import linear_regression_forecast
+from app.services.ai.anomaly import zscore_anomalies
 from app.services.ai.recommender import recommend_for_outlet, recommend_audit
 from app.services.ai.nlg_summary import generate_executive_summary
 
@@ -61,6 +63,86 @@ def forecast_revenue(
     result["range"] = range
     result["history_points"] = len(history)
     return result
+
+
+@router.get("/anomalies/sales")
+def sales_anomalies(
+    outlet_id: int | None = None,
+    days: int = Query(60, ge=14, le=365),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    AI feature: Anomaly Detection. Flags days whose revenue is a statistical
+    outlier (z-score > 2) versus the outlet's/network's recent daily revenue —
+    useful for catching data-entry errors, fraud, or genuinely unusual days.
+    """
+    allowed = scoped_outlet_ids(current_user)
+    if outlet_id and allowed is not None and outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
+
+    since = date.today() - timedelta(days=days)
+    query = db.query(
+        func.date_trunc("day", Sale.sale_date).label("day"),
+        func.sum(Sale.total_amount).label("revenue"),
+    ).filter(Sale.sale_date >= since)
+
+    if allowed is not None:
+        query = query.filter(Sale.outlet_id.in_(allowed))
+    if outlet_id:
+        query = query.filter(Sale.outlet_id == outlet_id)
+
+    rows = query.group_by("day").order_by("day").all()
+    if len(rows) < 5:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not enough daily history to detect anomalies (need 5+ days)")
+
+    values = [float(r.revenue) for r in rows]
+    flags = zscore_anomalies(values, threshold=2.0)
+
+    anomalies = [
+        {"date": rows[i].day.strftime("%Y-%m-%d"), "revenue": values[i]}
+        for i in range(len(rows)) if flags[i]
+    ]
+    return {"days_analyzed": len(rows), "anomaly_count": len(anomalies), "anomalies": anomalies}
+
+
+@router.get("/trend/profit")
+def profit_trend(
+    outlet_id: int | None = None,
+    months: int = Query(12, ge=1, le=36),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Monthly revenue, cost, and profit — powers the Profit Trend chart."""
+    allowed = scoped_outlet_ids(current_user)
+    if outlet_id and allowed is not None and outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
+
+    since = date.today() - timedelta(days=months * 31)
+    query = (
+        db.query(
+            func.date_trunc("month", Sale.sale_date).label("month"),
+            func.sum(Sale.total_amount).label("revenue"),
+            func.sum(Sale.quantity * Product.cost_price).label("cost"),
+        )
+        .join(Product, Product.id == Sale.product_id)
+        .filter(Sale.sale_date >= since)
+    )
+    if allowed is not None:
+        query = query.filter(Sale.outlet_id.in_(allowed))
+    if outlet_id:
+        query = query.filter(Sale.outlet_id == outlet_id)
+
+    rows = query.group_by("month").order_by("month").all()
+    return [
+        {
+            "label": r.month.strftime("%b %Y"),
+            "revenue": float(r.revenue or 0),
+            "cost": float(r.cost or 0),
+            "profit": float(r.revenue or 0) - float(r.cost or 0),
+        }
+        for r in rows
+    ]
 
 
 @router.get("/recommendations")
