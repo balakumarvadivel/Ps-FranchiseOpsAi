@@ -9,7 +9,7 @@ from app.models.user import User
 from app.models.marketing_audit import MarketingCampaign
 from app.schemas.marketing import CampaignCreate, CampaignUpdate, CampaignOut, CustomerSegment
 from app.services.ai.marketing_ai import (
-    rank_campaigns, best_and_worst_campaign, segment_customers, budget_optimization_recommendation,
+    rank_campaigns, segment_customers, budget_optimization_recommendation,
 )
 from app.services.ai.recommender import recommend_campaign
 
@@ -28,8 +28,15 @@ def _to_out(c: MarketingCampaign) -> CampaignOut:
 @router.get("/campaigns", response_model=list[CampaignOut])
 def list_campaigns(outlet_id: Optional[int] = None, db: Session = Depends(get_db),
                     current_user: User = Depends(get_current_user)):
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(MarketingCampaign)
+    if allowed is not None:
+        # Network-wide campaigns (outlet_id IS NULL) stay visible to everyone;
+        # outlet-specific campaigns are filtered to what this user can see.
+        query = query.filter(MarketingCampaign.outlet_id.in_(allowed) | MarketingCampaign.outlet_id.is_(None))
     if outlet_id:
+        if allowed is not None and outlet_id not in allowed:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
         query = query.filter(MarketingCampaign.outlet_id == outlet_id)
     return [_to_out(c) for c in query.order_by(MarketingCampaign.start_date.desc()).all()]
 
@@ -46,10 +53,13 @@ def create_campaign(payload: CampaignCreate, db: Session = Depends(get_db)):
 
 @router.put("/campaigns/{campaign_id}", response_model=CampaignOut,
             dependencies=[Depends(require_role("admin", "regional_manager"))])
-def update_campaign(campaign_id: int, payload: CampaignUpdate, db: Session = Depends(get_db)):
+def update_campaign(campaign_id: int, payload: CampaignUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     campaign = db.query(MarketingCampaign).filter(MarketingCampaign.id == campaign_id).first()
     if not campaign:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Campaign not found")
+    allowed = scoped_outlet_ids(current_user, db)
+    if allowed is not None and campaign.outlet_id is not None and campaign.outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this campaign")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(campaign, field, value)
     db.commit()
@@ -61,25 +71,56 @@ def update_campaign(campaign_id: int, payload: CampaignUpdate, db: Session = Dep
 def campaign_ranking(outlet_id: Optional[int] = None, db: Session = Depends(get_db),
                       current_user: User = Depends(get_current_user)):
     """AI feature: campaigns ranked by ROI, best to worst."""
-    return [_to_out(c) for c in rank_campaigns(db, outlet_id)]
+    allowed = scoped_outlet_ids(current_user, db)
+    if outlet_id and allowed is not None and outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
+    ranked = rank_campaigns(db, outlet_id)
+    if allowed is not None:
+        ranked = [c for c in ranked if c.outlet_id is None or c.outlet_id in allowed]
+    return [_to_out(c) for c in ranked]
 
 
 @router.get("/campaigns/best-worst")
 def campaign_best_worst(outlet_id: Optional[int] = None, db: Session = Depends(get_db),
                          current_user: User = Depends(get_current_user)):
     """AI feature: Best Campaign / Poor Campaign."""
-    result = best_and_worst_campaign(db, outlet_id)
-    return {
-        "best": _to_out(result["best"]) if result["best"] else None,
-        "worst": _to_out(result["worst"]) if result["worst"] else None,
-    }
+    allowed = scoped_outlet_ids(current_user, db)
+    if outlet_id and allowed is not None and outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
+
+    ranked = rank_campaigns(db, outlet_id)
+    if allowed is not None:
+        ranked = [c for c in ranked if c.outlet_id is None or c.outlet_id in allowed]
+    if not ranked:
+        return {"best": None, "worst": None}
+    return {"best": _to_out(ranked[0]), "worst": _to_out(ranked[-1])}
 
 
 @router.get("/customers/segments", response_model=list[CustomerSegment])
 def customer_segments(outlet_id: Optional[int] = None, db: Session = Depends(get_db),
                        current_user: User = Depends(get_current_user)):
     """AI feature: Customer Segmentation."""
-    return segment_customers(db, outlet_id)
+    allowed = scoped_outlet_ids(current_user, db)
+    if outlet_id and allowed is not None and outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
+    if outlet_id:
+        return segment_customers(db, outlet_id)
+    if allowed is None:
+        return segment_customers(db, None)
+
+    # No specific outlet requested but the user is scoped — aggregate segments
+    # across just their allowed outlets instead of leaking the whole network.
+    from collections import defaultdict
+    totals = defaultdict(lambda: {"customer_count": 0, "spend_sum": 0.0})
+    for oid in allowed:
+        for seg in segment_customers(db, oid):
+            totals[seg["segment"]]["customer_count"] += seg["customer_count"]
+            totals[seg["segment"]]["spend_sum"] += seg["avg_spend"] * seg["customer_count"]
+    return [
+        {"segment": seg, "customer_count": t["customer_count"],
+         "avg_spend": round(t["spend_sum"] / t["customer_count"], 2) if t["customer_count"] else 0}
+        for seg, t in totals.items()
+    ]
 
 
 @router.get("/budget-optimization")

@@ -49,7 +49,7 @@ def mark_all_notifications_read(db: Session = Depends(get_db), current_user: Use
 def list_alerts(severity: Optional[str] = None, alert_type: Optional[str] = None,
                  unread_only: bool = False, db: Session = Depends(get_db),
                  current_user: User = Depends(get_current_user)):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Alert)
     if allowed is not None:
         query = query.filter(Alert.outlet_id.in_(allowed))
@@ -67,7 +67,7 @@ def mark_alert_read(alert_id: int, db: Session = Depends(get_db), current_user: 
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
     if not alert:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Alert not found")
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if allowed is not None and alert.outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this alert")
     alert.is_read = True

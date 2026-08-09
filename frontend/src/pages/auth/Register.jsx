@@ -7,7 +7,7 @@ import { useAuth } from "../../context/AuthContext";
 export default function Register() {
   const { register, loading } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "outlet_manager", outlet_id: "" });
+  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "outlet_manager", outlet_id: "", region: "South" });
   const [error, setError] = useState(null);
 
   const update = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -76,6 +76,18 @@ export default function Register() {
               <input type="number" required value={form.outlet_id} onChange={update("outlet_id")}
                 placeholder="e.g. 1"
                 className="w-full px-3 py-2.5 text-sm rounded-xl bg-slate-100/80 dark:bg-slate-800/60 border border-transparent focus:border-blue-400 focus:outline-none" />
+            </div>
+          )}
+          {form.role === "regional_manager" && (
+            <div>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1 block">Region</label>
+              <select value={form.region} onChange={update("region")}
+                className="w-full px-3 py-2.5 text-sm rounded-xl bg-slate-100/80 dark:bg-slate-800/60 border border-transparent focus:border-blue-400 focus:outline-none">
+                <option value="North">North</option>
+                <option value="South">South</option>
+                <option value="East">East</option>
+                <option value="West">West</option>
+              </select>
             </div>
           )}
 

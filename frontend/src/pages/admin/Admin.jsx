@@ -52,6 +52,7 @@ function UsersTab() {
           ),
         },
         { key: "outlet_id", label: "Outlet ID", render: (u) => u.outlet_id ?? "—" },
+        { key: "region", label: "Region", render: (u) => u.region ?? "—" },
         {
           key: "is_active", label: "Status",
           render: (u) => <StatusBadge label={u.is_active ? "Active" : "Deactivated"} tone={u.is_active ? "success" : "danger"} />,

@@ -3,8 +3,9 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_role
+from app.core.deps import require_role, get_current_user, scoped_outlet_ids
 from app.database import get_db
+from app.models.user import User
 from app.models.sales import Sale
 from app.models.inventory import Inventory
 from app.models.staff import Employee
@@ -49,43 +50,52 @@ async def upload_and_validate(
 
 @router.post("/commit", response_model=CommitResult,
              dependencies=[Depends(require_role("admin", "regional_manager"))])
-def commit_cleaned_data(payload: CommitRequest, db: Session = Depends(get_db)):
+def commit_cleaned_data(payload: CommitRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Inserts already-cleaned rows (as returned by /upload) into the real
     tables. Each dataset type maps to one model; rows that still fail at
-    insert time (e.g. a foreign key that doesn't exist) are skipped and
-    reported rather than aborting the whole batch.
+    insert time (e.g. a foreign key that doesn't exist), or whose outlet_id
+    falls outside the requesting user's scope (a regional_manager trying to
+    import data for another region), are skipped and reported rather than
+    aborting the whole batch or silently writing out-of-scope data.
     """
     if payload.dataset_type not in SCHEMAS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"dataset_type must be one of {list(SCHEMAS)}")
 
+    allowed = scoped_outlet_ids(current_user, db)
     inserted, skipped, errors = 0, 0, []
 
     for i, row in enumerate(payload.rows):
         try:
+            row_outlet_id = int(row["outlet_id"])
+            if allowed is not None and row_outlet_id not in allowed:
+                skipped += 1
+                errors.append(f"Row {i}: outlet_id {row_outlet_id} is outside your authorized scope — skipped")
+                continue
+
             if payload.dataset_type == "sales":
                 quantity = int(row["quantity"])
                 unit_price = float(row["unit_price"])
                 db.add(Sale(
-                    outlet_id=int(row["outlet_id"]), product_id=int(row["product_id"]),
+                    outlet_id=row_outlet_id, product_id=int(row["product_id"]),
                     quantity=quantity, unit_price=unit_price, total_amount=quantity * unit_price,
                     discount=float(row.get("discount") or 0),
                     sale_date=row.get("sale_date") or datetime.utcnow(),
                 ))
             elif payload.dataset_type == "inventory":
                 existing = db.query(Inventory).filter(
-                    Inventory.outlet_id == int(row["outlet_id"]), Inventory.product_id == int(row["product_id"]),
+                    Inventory.outlet_id == row_outlet_id, Inventory.product_id == int(row["product_id"]),
                 ).first()
                 if existing:
                     existing.quantity = int(row["quantity"])
                 else:
                     db.add(Inventory(
-                        outlet_id=int(row["outlet_id"]), product_id=int(row["product_id"]),
+                        outlet_id=row_outlet_id, product_id=int(row["product_id"]),
                         quantity=int(row["quantity"]),
                     ))
             elif payload.dataset_type == "employees":
                 db.add(Employee(
-                    outlet_id=int(row["outlet_id"]), full_name=str(row["full_name"]),
+                    outlet_id=row_outlet_id, full_name=str(row["full_name"]),
                     designation=row.get("designation") or None, date_joined=row.get("date_joined") or None,
                 ))
             inserted += 1

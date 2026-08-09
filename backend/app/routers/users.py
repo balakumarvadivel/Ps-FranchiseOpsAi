@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_role
+from app.core.deps import require_role, get_current_user, scoped_outlet_ids
 from app.database import get_db
 from app.models.user import User, Role
 from app.schemas.user_admin import UserAdminOut, UserAdminUpdate
@@ -14,14 +14,21 @@ router = APIRouter(prefix="/api/v1/users", tags=["User Management"])
 def _to_out(user: User) -> UserAdminOut:
     return UserAdminOut(
         id=user.id, full_name=user.full_name, email=user.email,
-        role=user.role.name, outlet_id=user.outlet_id, is_active=user.is_active,
+        role=user.role.name, outlet_id=user.outlet_id, region=user.region, is_active=user.is_active,
     )
 
 
 @router.get("", response_model=list[UserAdminOut],
             dependencies=[Depends(require_role("admin", "regional_manager"))])
-def list_users(role: Optional[str] = None, outlet_id: Optional[int] = None, db: Session = Depends(get_db)):
+def list_users(role: Optional[str] = None, outlet_id: Optional[int] = None,
+                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     query = db.query(User)
+
+    if current_user.role.name == "regional_manager":
+        allowed = scoped_outlet_ids(current_user, db)
+        # Regional managers see outlet_managers within their region, plus themselves.
+        query = query.filter((User.outlet_id.in_(allowed) if allowed else False) | (User.id == current_user.id))
+
     if role:
         query = query.join(Role).filter(Role.name == role)
     if outlet_id:
@@ -31,10 +38,16 @@ def list_users(role: Optional[str] = None, outlet_id: Optional[int] = None, db: 
 
 @router.get("/{user_id}", response_model=UserAdminOut,
             dependencies=[Depends(require_role("admin", "regional_manager"))])
-def get_user(user_id: int, db: Session = Depends(get_db)):
+def get_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+
+    if current_user.role.name == "regional_manager" and user.id != current_user.id:
+        allowed = scoped_outlet_ids(current_user, db)
+        if not allowed or user.outlet_id not in allowed:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this user")
+
     return _to_out(user)
 
 

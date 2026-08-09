@@ -24,9 +24,20 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 
 
 def build_report_rows(db: Session, report_type: str, outlet_id: Optional[int],
-                       date_from: Optional[date], date_to: Optional[date]) -> tuple[str, list[dict]]:
+                       date_from: Optional[date], date_to: Optional[date],
+                       allowed_outlet_ids: Optional[list[int]] = None) -> tuple[str, list[dict]]:
+    """
+    allowed_outlet_ids: the caller's outlet scope (None = unrestricted/admin,
+    [] = no outlets visible, [1,2,3] = restricted to those). Applied on top
+    of any explicit outlet_id filter so a scoped user can never pull rows
+    for outlets outside what they're authorized to see, even when they
+    generate a report type (like "overall") that doesn't take a single
+    outlet_id as its primary filter.
+    """
     if report_type == "sales":
         query = db.query(Sale)
+        if allowed_outlet_ids is not None:
+            query = query.filter(Sale.outlet_id.in_(allowed_outlet_ids))
         if outlet_id:
             query = query.filter(Sale.outlet_id == outlet_id)
         if date_from:
@@ -42,6 +53,8 @@ def build_report_rows(db: Session, report_type: str, outlet_id: Optional[int],
 
     if report_type == "inventory":
         query = db.query(Inventory)
+        if allowed_outlet_ids is not None:
+            query = query.filter(Inventory.outlet_id.in_(allowed_outlet_ids))
         if outlet_id:
             query = query.filter(Inventory.outlet_id == outlet_id)
         rows = [{
@@ -52,6 +65,8 @@ def build_report_rows(db: Session, report_type: str, outlet_id: Optional[int],
 
     if report_type == "staff":
         query = db.query(Employee).filter(Employee.status == "active")
+        if allowed_outlet_ids is not None:
+            query = query.filter(Employee.outlet_id.in_(allowed_outlet_ids))
         if outlet_id:
             query = query.filter(Employee.outlet_id == outlet_id)
         rows = []
@@ -66,6 +81,8 @@ def build_report_rows(db: Session, report_type: str, outlet_id: Optional[int],
 
     if report_type == "marketing":
         query = db.query(MarketingCampaign)
+        if allowed_outlet_ids is not None:
+            query = query.filter(MarketingCampaign.outlet_id.in_(allowed_outlet_ids) | MarketingCampaign.outlet_id.is_(None))
         if outlet_id:
             query = query.filter(MarketingCampaign.outlet_id == outlet_id)
         rows = [{
@@ -77,6 +94,8 @@ def build_report_rows(db: Session, report_type: str, outlet_id: Optional[int],
 
     if report_type == "audit":
         query = db.query(Audit)
+        if allowed_outlet_ids is not None:
+            query = query.filter(Audit.outlet_id.in_(allowed_outlet_ids))
         if outlet_id:
             query = query.filter(Audit.outlet_id == outlet_id)
         rows = [{
@@ -87,6 +106,8 @@ def build_report_rows(db: Session, report_type: str, outlet_id: Optional[int],
 
     # overall — cross-domain outlet summary
     outlets = db.query(Outlet)
+    if allowed_outlet_ids is not None:
+        outlets = outlets.filter(Outlet.id.in_(allowed_outlet_ids))
     if outlet_id:
         outlets = outlets.filter(Outlet.id == outlet_id)
     rows = []

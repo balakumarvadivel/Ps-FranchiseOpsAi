@@ -6,9 +6,9 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
-from app.core.security import hash_password, verify_password, create_access_token
+from app.core.security import hash_password, verify_password, create_access_token, hash_reset_token
 from app.database import get_db
-from app.models.user import User, Role
+from app.models.user import User, Role, Region
 from app.schemas.auth import (
     RegisterRequest, LoginRequest, ForgotPasswordRequest, ResetPasswordRequest,
     TokenResponse, UserOut,
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 def _user_to_out(user: User) -> UserOut:
     return UserOut(
         id=user.id, full_name=user.full_name, email=user.email,
-        role=user.role.name, outlet_id=user.outlet_id,
+        role=user.role.name, outlet_id=user.outlet_id, region=user.region,
     )
 
 
@@ -36,12 +36,19 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     if payload.role == "outlet_manager" and not payload.outlet_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "outlet_id is required for outlet_manager role")
 
+    if payload.role == "regional_manager":
+        if not payload.region:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "region is required for regional_manager role")
+        if not db.query(Region).filter(Region.name == payload.region).first():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown region '{payload.region}'")
+
     user = User(
         full_name=payload.full_name,
         email=payload.email,
         hashed_password=hash_password(payload.password),
         role_id=role.id,
-        outlet_id=payload.outlet_id,
+        outlet_id=payload.outlet_id if payload.role == "outlet_manager" else None,
+        region=payload.region if payload.role == "regional_manager" else None,
     )
     db.add(user)
     db.commit()
@@ -90,23 +97,27 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
     if not user:
         return generic_response
 
-    user.reset_token = secrets.token_urlsafe(32)
+    raw_token = secrets.token_urlsafe(32)
+    user.reset_token_hash = hash_reset_token(raw_token)
     user.reset_token_expires = datetime.now(timezone.utc) + timedelta(minutes=30)
     db.commit()
 
-    # In production: send `user.reset_token` via an email service (e.g. SES, SendGrid).
-    # Returned here only because there is no mail server configured in this demo.
-    return {**generic_response, "dev_reset_token": user.reset_token}
+    # In production: email `raw_token` via SES/SendGrid/etc. and return only
+    # the generic message below. Only the HASH is ever persisted to the DB —
+    # returned here in the response (not stored) purely because there's no
+    # mail server wired up in this demo build.
+    return {**generic_response, "dev_reset_token": raw_token}
 
 
 @router.post("/reset-password")
 def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.reset_token == payload.token).first()
+    token_hash = hash_reset_token(payload.token)
+    user = db.query(User).filter(User.reset_token_hash == token_hash).first()
     if not user or not user.reset_token_expires or user.reset_token_expires < datetime.now(timezone.utc):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired reset token")
 
     user.hashed_password = hash_password(payload.new_password)
-    user.reset_token = None
+    user.reset_token_hash = None
     user.reset_token_expires = None
     db.commit()
     return {"message": "Password reset successfully"}

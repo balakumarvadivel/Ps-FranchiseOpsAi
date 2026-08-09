@@ -10,7 +10,7 @@ from app.models.sales import Sale
 
 
 def get_outlet_or_404(db: Session, outlet_id: int, current_user: User) -> Outlet:
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if allowed is not None and outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 

@@ -27,7 +27,7 @@ def list_recommendations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Recommendation)
     if allowed is not None:
         query = query.filter(Recommendation.outlet_id.in_(allowed) | Recommendation.outlet_id.is_(None))
@@ -49,6 +49,11 @@ def update_recommendation_status(recommendation_id: int, payload: Recommendation
     rec = db.query(Recommendation).filter(Recommendation.id == recommendation_id).first()
     if not rec:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Recommendation not found")
+
+    allowed = scoped_outlet_ids(current_user, db)
+    if allowed is not None and rec.outlet_id is not None and rec.outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this recommendation")
+
     if payload.status not in ("open", "in_progress", "resolved", "dismissed"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid status value")
     rec.status = payload.status
@@ -58,22 +63,31 @@ def update_recommendation_status(recommendation_id: int, payload: Recommendation
 
 
 @router.post("/refresh", dependencies=[Depends(require_role("admin", "regional_manager"))])
-def refresh_recommendations(db: Session = Depends(get_db)):
+def refresh_recommendations(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Re-runs the recommendation engine across outlets, inventory, staff and
-    audits, and persists fresh rows. Existing 'open' recommendations are
-    cleared first so this stays idempotent rather than accumulating
-    duplicates every time it's run (e.g. from a daily scheduled job).
+    Re-runs the recommendation engine and persists fresh rows. Scoped to the
+    requesting user's outlets — a regional_manager only clears and
+    regenerates recommendations for their own region, never touching (or
+    deleting) recommendations that belong to outlets outside their scope.
     """
-    db.query(Recommendation).filter(Recommendation.status == "open").delete()
+    allowed = scoped_outlet_ids(current_user, db)
+
+    delete_query = db.query(Recommendation).filter(Recommendation.status == "open")
+    if allowed is not None:
+        delete_query = delete_query.filter(Recommendation.outlet_id.in_(allowed))
+    delete_query.delete(synchronize_session=False)
 
     today = date.today()
     window_start = today - timedelta(days=30)
     prev_start = window_start - timedelta(days=30)
 
+    outlets_query = db.query(Outlet)
+    if allowed is not None:
+        outlets_query = outlets_query.filter(Outlet.id.in_(allowed))
+
     new_recs = []
 
-    for outlet in db.query(Outlet).all():
+    for outlet in outlets_query.all():
         health = compute_outlet_health_score(db, outlet.id)
 
         current = db.query(func.coalesce(func.sum(Sale.total_amount), 0)).filter(
@@ -92,7 +106,8 @@ def refresh_recommendations(db: Session = Depends(get_db)):
             days_overdue = (today - overdue_audit.scheduled_date).days
             new_recs.append(recommend_audit(outlet.name, outlet.id, days_overdue))
 
-    new_recs.extend(inventory_recommendation_objects(db))
+    for outlet_id in (allowed if allowed is not None else [o.id for o in outlets_query.all()]):
+        new_recs.extend(inventory_recommendation_objects(db, outlet_id))
 
     for rec in new_recs:
         db.add(Recommendation(

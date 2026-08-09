@@ -8,6 +8,7 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=8)
     role: str = Field(..., description="admin | regional_manager | outlet_manager")
     outlet_id: Optional[int] = None
+    region: Optional[str] = Field(None, description="Required for regional_manager role")
 
 
 class LoginRequest(BaseModel):
@@ -36,6 +37,7 @@ class UserOut(BaseModel):
     email: EmailStr
     role: str
     outlet_id: Optional[int] = None
+    region: Optional[str] = None
 
     class Config:
         from_attributes = True

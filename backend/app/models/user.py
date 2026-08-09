@@ -75,9 +75,10 @@ class User(Base):
     email = Column(String(150), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
-    outlet_id = Column(Integer, ForeignKey("outlets.id"), nullable=True)
+    outlet_id = Column(Integer, ForeignKey("outlets.id"), nullable=True)  # for outlet_manager
+    region = Column(String(50), ForeignKey("regions.name"), nullable=True)  # for regional_manager
     is_active = Column(Boolean, default=True)
-    reset_token = Column(String(255), nullable=True)
+    reset_token_hash = Column(String(255), nullable=True)
     reset_token_expires = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

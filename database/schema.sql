@@ -60,9 +60,10 @@ CREATE TABLE users (
     email           VARCHAR(150) UNIQUE NOT NULL,
     hashed_password VARCHAR(255) NOT NULL,
     role_id         INTEGER NOT NULL REFERENCES roles(id),
-    outlet_id       INTEGER REFERENCES outlets(id),       -- NULL for admin / regional manager
+    outlet_id       INTEGER REFERENCES outlets(id),       -- for outlet_manager
+    region          VARCHAR(50) REFERENCES regions(name),  -- for regional_manager
     is_active       BOOLEAN DEFAULT TRUE,
-    reset_token     VARCHAR(255),
+    reset_token_hash VARCHAR(255),                          -- SHA-256 hash, never the raw token
     reset_token_expires TIMESTAMPTZ,
     created_at      TIMESTAMPTZ DEFAULT now(),
     updated_at      TIMESTAMPTZ DEFAULT now()

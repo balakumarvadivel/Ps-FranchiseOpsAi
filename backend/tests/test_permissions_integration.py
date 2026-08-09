@@ -20,7 +20,7 @@ def test_outlet_manager_row_excludes_users_manage(client, auth_headers):
 def test_non_admin_cannot_update_permission_matrix(client):
     reg = client.post("/api/v1/auth/register", json={
         "full_name": "Regional Mgr", "email": "regional@test.com", "password": "RegionalPass123",
-        "role": "regional_manager",
+        "role": "regional_manager", "region": "South",
     })
     headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
     resp = client.put("/api/v1/permissions/matrix/outlet_manager",

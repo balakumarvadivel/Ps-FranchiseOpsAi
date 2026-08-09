@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/v1/sales", tags=["Sales"])
 
 @router.post("", response_model=SaleOut, status_code=status.HTTP_201_CREATED)
 def record_sale(payload: SaleCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if allowed is not None and payload.outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 
@@ -55,7 +55,7 @@ def list_sales(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Sale)
     if allowed is not None:
         query = query.filter(Sale.outlet_id.in_(allowed))
@@ -86,7 +86,7 @@ def sales_trend(
     current_user: User = Depends(get_current_user),
 ):
     """Powers the Daily/Weekly/Monthly/Yearly sales performance chart. Pass date_from/date_to to override the default lookback window."""
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if outlet_id and allowed is not None and outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 
@@ -124,7 +124,7 @@ def sales_trend(
 def category_performance(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db),
                           current_user: User = Depends(get_current_user)):
     """Revenue and units sold by product category — powers the Category Performance chart."""
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     since = date.today() - timedelta(days=days)
 
     query = (

@@ -8,6 +8,7 @@ class UserAdminOut(BaseModel):
     email: EmailStr
     role: str
     outlet_id: Optional[int]
+    region: Optional[str]
     is_active: bool
 
     class Config:
@@ -18,4 +19,5 @@ class UserAdminUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
     outlet_id: Optional[int] = None
+    region: Optional[str] = None
     is_active: Optional[bool] = None

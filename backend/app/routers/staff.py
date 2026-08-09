@@ -18,8 +18,8 @@ from app.services.ai.staff_ai import compute_employee_performance, best_employee
 router = APIRouter(prefix="/api/v1/staff", tags=["Staff Agent"])
 
 
-def _assert_outlet_access(outlet_id: int, current_user: User):
-    allowed = scoped_outlet_ids(current_user)
+def _assert_outlet_access(outlet_id: int, current_user: User, db: Session):
+    allowed = scoped_outlet_ids(current_user, db)
     if allowed is not None and outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 
@@ -27,12 +27,12 @@ def _assert_outlet_access(outlet_id: int, current_user: User):
 @router.get("/employees", response_model=list[EmployeeOut])
 def list_employees(outlet_id: Optional[int] = None, db: Session = Depends(get_db),
                     current_user: User = Depends(get_current_user)):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Employee)
     if allowed is not None:
         query = query.filter(Employee.outlet_id.in_(allowed))
     if outlet_id:
-        _assert_outlet_access(outlet_id, current_user)
+        _assert_outlet_access(outlet_id, current_user, db)
         query = query.filter(Employee.outlet_id == outlet_id)
     return query.order_by(Employee.full_name).all()
 
@@ -40,7 +40,7 @@ def list_employees(outlet_id: Optional[int] = None, db: Session = Depends(get_db
 @router.post("/employees", response_model=EmployeeOut, status_code=status.HTTP_201_CREATED,
              dependencies=[Depends(require_role("admin", "regional_manager", "outlet_manager"))])
 def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    _assert_outlet_access(payload.outlet_id, current_user)
+    _assert_outlet_access(payload.outlet_id, current_user, db)
     employee = Employee(**payload.model_dump())
     db.add(employee)
     db.commit()
@@ -53,7 +53,7 @@ def mark_attendance(payload: AttendanceMark, db: Session = Depends(get_db), curr
     employee = db.query(Employee).filter(Employee.id == payload.employee_id).first()
     if not employee:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee not found")
-    _assert_outlet_access(employee.outlet_id, current_user)
+    _assert_outlet_access(employee.outlet_id, current_user, db)
 
     existing = db.query(Attendance).filter(
         Attendance.employee_id == payload.employee_id, Attendance.date == payload.date,
@@ -73,7 +73,7 @@ def schedule_shift(payload: ShiftCreate, db: Session = Depends(get_db), current_
     employee = db.query(Employee).filter(Employee.id == payload.employee_id).first()
     if not employee:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee not found")
-    _assert_outlet_access(employee.outlet_id, current_user)
+    _assert_outlet_access(employee.outlet_id, current_user, db)
 
     shift = Shift(**payload.model_dump())
     db.add(shift)
@@ -85,12 +85,12 @@ def schedule_shift(payload: ShiftCreate, db: Session = Depends(get_db), current_
 @router.get("/shifts", response_model=list[ShiftOut])
 def list_shifts(outlet_id: Optional[int] = None, employee_id: Optional[int] = None,
                  db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Shift).join(Employee, Employee.id == Shift.employee_id)
     if allowed is not None:
         query = query.filter(Employee.outlet_id.in_(allowed))
     if outlet_id:
-        _assert_outlet_access(outlet_id, current_user)
+        _assert_outlet_access(outlet_id, current_user, db)
         query = query.filter(Employee.outlet_id == outlet_id)
     if employee_id:
         query = query.filter(Shift.employee_id == employee_id)
@@ -117,12 +117,12 @@ def record_payroll(payload: PayrollCreate, db: Session = Depends(get_db)):
 @router.get("/payroll", response_model=list[PayrollOut])
 def list_payroll(outlet_id: Optional[int] = None, employee_id: Optional[int] = None,
                   db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Payroll).join(Employee, Employee.id == Payroll.employee_id)
     if allowed is not None:
         query = query.filter(Employee.outlet_id.in_(allowed))
     if outlet_id:
-        _assert_outlet_access(outlet_id, current_user)
+        _assert_outlet_access(outlet_id, current_user, db)
         query = query.filter(Employee.outlet_id == outlet_id)
     if employee_id:
         query = query.filter(Payroll.employee_id == employee_id)
@@ -144,7 +144,7 @@ def request_leave(payload: LeaveRequestCreate, db: Session = Depends(get_db), cu
     employee = db.query(Employee).filter(Employee.id == payload.employee_id).first()
     if not employee:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee not found")
-    _assert_outlet_access(employee.outlet_id, current_user)
+    _assert_outlet_access(employee.outlet_id, current_user, db)
 
     if payload.end_date < payload.start_date:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "end_date cannot be before start_date")
@@ -163,12 +163,12 @@ def request_leave(payload: LeaveRequestCreate, db: Session = Depends(get_db), cu
 @router.get("/leave", response_model=list[LeaveRequestOut])
 def list_leave_requests(outlet_id: Optional[int] = None, status_filter: Optional[str] = None,
                          db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(LeaveRequest).join(Employee, Employee.id == LeaveRequest.employee_id)
     if allowed is not None:
         query = query.filter(Employee.outlet_id.in_(allowed))
     if outlet_id:
-        _assert_outlet_access(outlet_id, current_user)
+        _assert_outlet_access(outlet_id, current_user, db)
         query = query.filter(Employee.outlet_id == outlet_id)
     if status_filter:
         query = query.filter(LeaveRequest.status == status_filter)
@@ -190,7 +190,7 @@ def decide_leave_request(leave_id: int, payload: LeaveDecision, db: Session = De
     leave = db.query(LeaveRequest).filter(LeaveRequest.id == leave_id).first()
     if not leave:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Leave request not found")
-    _assert_outlet_access(leave.employee.outlet_id, current_user)
+    _assert_outlet_access(leave.employee.outlet_id, current_user, db)
 
     leave.status = payload.status
     leave.decided_at = datetime.utcnow()
@@ -208,12 +208,12 @@ def decide_leave_request(leave_id: int, payload: LeaveDecision, db: Session = De
 def employee_performance(outlet_id: Optional[int] = None, db: Session = Depends(get_db),
                           current_user: User = Depends(get_current_user)):
     """AI feature: Employee Performance Score + Attrition Prediction, per employee."""
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Employee).filter(Employee.status == "active")
     if allowed is not None:
         query = query.filter(Employee.outlet_id.in_(allowed))
     if outlet_id:
-        _assert_outlet_access(outlet_id, current_user)
+        _assert_outlet_access(outlet_id, current_user, db)
         query = query.filter(Employee.outlet_id == outlet_id)
 
     return [EmployeePerformance(**compute_employee_performance(db, e)) for e in query.all()]
@@ -222,7 +222,7 @@ def employee_performance(outlet_id: Optional[int] = None, db: Session = Depends(
 @router.get("/best-employee/{outlet_id}", response_model=EmployeePerformance)
 def get_best_employee(outlet_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """AI feature: Recommend Best Employee."""
-    _assert_outlet_access(outlet_id, current_user)
+    _assert_outlet_access(outlet_id, current_user, db)
     result = best_employee(db, outlet_id)
     if not result:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No active employees at this outlet")
@@ -232,5 +232,5 @@ def get_best_employee(outlet_id: int, db: Session = Depends(get_db), current_use
 @router.get("/shift-optimization/{outlet_id}")
 def get_shift_optimization(outlet_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """AI feature: Suggest Shift Optimization."""
-    _assert_outlet_access(outlet_id, current_user)
+    _assert_outlet_access(outlet_id, current_user, db)
     return {"outlet_id": outlet_id, "suggestions": shift_optimization_suggestions(db, outlet_id)}

@@ -23,7 +23,7 @@ def list_outlets(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Outlet)
     if allowed is not None:
         query = query.filter(Outlet.id.in_(allowed))
@@ -42,7 +42,9 @@ def get_outlet(outlet_id: int, db: Session = Depends(get_db), current_user: User
 
 @router.post("", response_model=OutletOut, status_code=status.HTTP_201_CREATED,
              dependencies=[Depends(require_role("admin", "regional_manager"))])
-def create_outlet(payload: OutletCreate, db: Session = Depends(get_db)):
+def create_outlet(payload: OutletCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role.name == "regional_manager" and payload.region != current_user.region:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"Regional managers can only create outlets in their own region ({current_user.region})")
     if db.query(Outlet).filter(Outlet.code == payload.code).first():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Outlet code already exists")
     outlet = Outlet(**payload.model_dump())
@@ -54,10 +56,12 @@ def create_outlet(payload: OutletCreate, db: Session = Depends(get_db)):
 
 @router.put("/{outlet_id}", response_model=OutletOut,
             dependencies=[Depends(require_role("admin", "regional_manager"))])
-def update_outlet(outlet_id: int, payload: OutletUpdate, db: Session = Depends(get_db)):
+def update_outlet(outlet_id: int, payload: OutletUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     outlet = db.query(Outlet).filter(Outlet.id == outlet_id).first()
     if not outlet:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Outlet not found")
+    if current_user.role.name == "regional_manager" and outlet.region != current_user.region:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet's region")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(outlet, field, value)
     db.commit()
@@ -85,7 +89,7 @@ def outlet_ranking(
     Core of the Outlet Performance Agent: revenue, growth % (this window vs the
     previous equal window) and a composite health score, per outlet.
     """
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     outlets_q = db.query(Outlet)
     if allowed is not None:
         outlets_q = outlets_q.filter(Outlet.id.in_(allowed))

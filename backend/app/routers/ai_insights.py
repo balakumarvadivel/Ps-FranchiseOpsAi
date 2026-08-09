@@ -24,6 +24,9 @@ def outlet_health_score(outlet_id: int, db: Session = Depends(get_db), current_u
     outlet = db.query(Outlet).filter(Outlet.id == outlet_id).first()
     if not outlet:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Outlet not found")
+    allowed = scoped_outlet_ids(current_user, db)
+    if allowed is not None and outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
     return compute_outlet_health_breakdown(db, outlet_id)
 
 
@@ -35,7 +38,7 @@ def forecast_revenue(
     current_user: User = Depends(get_current_user),
 ):
     """AI feature: Revenue Forecasting. Builds a daily history then projects forward."""
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if outlet_id and allowed is not None and outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 
@@ -77,7 +80,7 @@ def sales_anomalies(
     outlier (z-score > 2) versus the outlet's/network's recent daily revenue —
     useful for catching data-entry errors, fraud, or genuinely unusual days.
     """
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if outlet_id and allowed is not None and outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 
@@ -114,7 +117,7 @@ def profit_trend(
     current_user: User = Depends(get_current_user),
 ):
     """Monthly revenue, cost, and profit — powers the Profit Trend chart."""
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if outlet_id and allowed is not None and outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 
@@ -151,7 +154,7 @@ def generate_recommendations(db: Session = Depends(get_db), current_user: User =
     Business Recommendation Engine: pulls health scores + growth + overdue
     audits across all outlets in scope and returns prioritized recommendations.
     """
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     outlets_q = db.query(Outlet)
     if allowed is not None:
         outlets_q = outlets_q.filter(Outlet.id.in_(allowed))
@@ -189,7 +192,7 @@ def generate_recommendations(db: Session = Depends(get_db), current_user: User =
 @router.get("/executive-summary")
 def executive_summary(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Franchise Intelligence Engine: cross-domain roll-up + NLG summary."""
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     outlets_q = db.query(Outlet)
     if allowed is not None:
         outlets_q = outlets_q.filter(Outlet.id.in_(allowed))

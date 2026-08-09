@@ -113,6 +113,101 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
 Copy the `access_token` from the response and use the "Authorize" button in
 `/docs` (prefix with `Bearer `) to call protected endpoints.
 
+## Security fixes from a critical review pass
+
+After the initial build, I went back through the RBAC logic specifically
+looking for real bugs rather than just structural correctness, and found
+(and fixed) several genuine access-control gaps:
+
+- **`regional_manager` had unrestricted network-wide access**, identical to
+  `admin` — despite the spec saying they should only see "outlets within an
+  assigned region." There was no `region` field on `User` at all, so this
+  was never actually implementable as it stood. Fixed: added `User.region`
+  (FK'd to the new `regions` table), made it required at registration for
+  that role, and rewrote `scoped_outlet_ids()` to actually filter by it —
+  fails closed (sees nothing) rather than open if a `regional_manager`
+  account somehow has no region set.
+- **Marketing endpoints had zero outlet scoping** — any `outlet_manager`
+  could see every campaign and customer segment network-wide. Fixed across
+  all five marketing endpoints.
+- **Audit findings had no outlet-scope check** — any `outlet_manager` could
+  view or resolve findings belonging to a different outlet's audit, and
+  `schedule_audit`/`complete_audit` had the same gap for `regional_manager`
+  acting outside their region. Fixed.
+- **`list_users` showed every user in the system** to a `regional_manager`,
+  not just people in their region. Fixed.
+- **Password reset tokens were stored in plaintext** in the `users` table —
+  anyone with DB read access (backup leak, injection, etc.) could take over
+  an account mid-reset. Fixed: tokens are now SHA-256 hashed before storage,
+  matched by hash on reset, same pattern most frameworks use for this.
+
+New tests in `tests/test_regional_scoping.py` specifically exercise these
+fixes (a `regional_manager` in one region can't see/create/complete-audit
+outlets in another region; `admin` still sees everything).
+
+### Round 2 — same pattern, different endpoints
+
+Went back a second time and found the same class of bug in five more
+places, since a scoping fix in one router doesn't guarantee every router
+follows the pattern:
+
+- **`GET /ai/outlets/{id}/health-score`** had no scope check at all — any
+  authenticated user could pull any outlet's health breakdown by ID.
+- **Report generation** (`POST /reports/generate`) had no role restriction
+  and, when no `outlet_id` was specified (the common case — an "overall"
+  report), returned every outlet's data network-wide regardless of who was
+  asking. An `outlet_manager` could pull a full network financial report.
+  Fixed by threading the caller's scope through every report type in
+  `report_service.py`, not just as an afterthought on one branch.
+- **`POST /recommendations/refresh`** deleted *all* open recommendations
+  network-wide before regenerating, regardless of the caller's scope — a
+  `regional_manager` in one region could wipe out another region's open
+  recommendations as a side effect of refreshing their own. Fixed to scope
+  both the delete and the regeneration.
+- **`PUT /recommendations/{id}/status`** had zero scope check — any
+  `outlet_manager` could resolve/dismiss any other outlet's recommendations.
+- **`POST /data-validation/commit`** (the bulk data-import endpoint) never
+  checked that a row's `outlet_id` was in the caller's scope before writing
+  it — a `regional_manager` could bulk-import sales/inventory/employee data
+  for outlets in a region they don't manage. Fixed with a per-row scope
+  check; out-of-scope rows are now skipped and reported, not silently
+  written.
+- **`GET /inventory/alerts/transfer-suggestions`** leaked every outlet's
+  stock levels and names to any user, since a transfer suggestion is
+  inherently cross-outlet. Fixed to only surface suggestions touching at
+  least one outlet the caller is actually authorized for.
+
+New tests in `tests/test_scoping_round2.py` cover this batch specifically.
+
+### The structural fix: a regression guard, not another manual pass
+
+After finding new instances of the same bug class three times in a row, the
+real problem stopped being "one more endpoint to fix" and became "manual
+review doesn't reliably catch this at this codebase's size." So instead of
+a fourth manual pass, I built `tests/test_query_scoping_guard.py` — a
+static-analysis test (uses Python's `ast` module, no DB or running server
+needed) that parses every router and fails if any function queries an
+outlet-owned model (`Sale`, `Inventory`, `Employee`, `Audit`,
+`MarketingCampaign`, `Recommendation`, `Alert`, `Customer`, `AIInsight` —
+registered once in `app/core/scoping.py`) without also calling
+`scoped_outlet_ids()` / `apply_outlet_scope()` / the local
+`_assert_outlet_access()` helper somewhere in that same function.
+
+**Running it immediately found three more real bugs** that three rounds of
+manual review had missed: `add_audit_finding` and `get_audit_risk` had no
+scope check at all (any user could add findings to, or view risk data for,
+any outlet's audit by ID), and `update_campaign` let a `regional_manager`
+edit any campaign network-wide. All three are fixed now.
+
+I verified the guard actually has teeth, not just that it currently passes:
+I planted a deliberately-unscoped test endpoint querying `Sale`, ran the
+guard, confirmed it caught it, then removed the test endpoint and diffed
+the file back to its original state to confirm no residue was left behind.
+
+This test now runs as part of `pytest` alongside everything else — any
+future endpoint that queries outlet-owned data without scoping it will fail
+the build, not slip through as a fourth thing I happened to notice.
+
 ## Honest caveats
 
 Every module described above is implemented with real, non-mocked logic —

@@ -17,11 +17,12 @@ router = APIRouter(prefix="/api/v1/reports", tags=["Reports"])
 
 @router.post("/generate", response_model=ReportOut, status_code=status.HTTP_201_CREATED)
 def generate_report(payload: ReportRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if payload.outlet_id and allowed is not None and payload.outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 
-    title, rows = build_report_rows(db, payload.report_type, payload.outlet_id, payload.date_from, payload.date_to)
+    title, rows = build_report_rows(db, payload.report_type, payload.outlet_id, payload.date_from, payload.date_to,
+                                     allowed_outlet_ids=allowed)
 
     filename_base = f"{payload.report_type}_{uuid.uuid4().hex[:8]}"
     file_path = write_report_file(title, rows, payload.format, filename_base)

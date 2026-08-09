@@ -59,12 +59,25 @@ def require_permission(code: str):
     return permission_checker
 
 
-def scoped_outlet_ids(current_user: User) -> list[int] | None:
+def scoped_outlet_ids(current_user: User, db: Session) -> list[int] | None:
     """
     Returns the list of outlet_ids the current user is allowed to see, or
-    None if they have network-wide access (admin / regional_manager).
-    Outlet managers are restricted to their own outlet.
+    None if they have genuinely network-wide access (admin only).
+
+    - outlet_manager -> only their own outlet.
+    - regional_manager -> every outlet in their assigned region. Requires
+      `region` to be set; if it isn't (e.g. a pre-existing account created
+      before this field existed), they see nothing rather than everything —
+      fail closed, not open, on a misconfigured account.
+    - admin -> unrestricted (None).
     """
     if current_user.role.name == "outlet_manager":
         return [current_user.outlet_id] if current_user.outlet_id else []
+
+    if current_user.role.name == "regional_manager":
+        if not current_user.region:
+            return []
+        from app.models.user import Outlet
+        return [o.id for o in db.query(Outlet.id).filter(Outlet.region == current_user.region).all()]
+
     return None

@@ -19,7 +19,7 @@ def global_search(q: str = Query(..., min_length=2), db: Session = Depends(get_d
     is allowed to see. Returns a small, categorized result set rather than
     a paginated list — this is a quick-jump search, not a full search page.
     """
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     like = f"%{q}%"
 
     outlet_query = db.query(Outlet).filter(Outlet.name.ilike(like) | Outlet.city.ilike(like))

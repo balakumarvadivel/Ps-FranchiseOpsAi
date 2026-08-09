@@ -37,7 +37,7 @@ def list_inventory(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Inventory).join(Product, Product.id == Inventory.product_id)
     if allowed is not None:
         query = query.filter(Inventory.outlet_id.in_(allowed))
@@ -64,7 +64,7 @@ def update_stock(inventory_id: int, payload: InventoryUpdate, db: Session = Depe
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Inventory record not found")
 
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if allowed is not None and row.outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 
@@ -94,7 +94,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
 def reorder_recommendations(outlet_id: Optional[int] = None, db: Session = Depends(get_db),
                              current_user: User = Depends(get_current_user)):
     """AI feature: 'Recommend reorder quantity' — flags SKUs at/below reorder level."""
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if outlet_id and allowed is not None and outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 
@@ -109,8 +109,15 @@ def reorder_recommendations(outlet_id: Optional[int] = None, db: Session = Depen
 def transfer_suggestions(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     AI feature: 'Suggest outlet-to-outlet stock transfer'. For each product,
-    matches an overstocked outlet against an understocked one.
+    matches an overstocked outlet against an understocked one. This is
+    inherently cross-outlet (a transfer has a giving and a receiving side),
+    but a scoped user (outlet_manager/regional_manager) should only see
+    transfers that touch at least one outlet they're actually authorized
+    for — not the stock levels of every other outlet in the network as a
+    side effect of browsing this feature.
     """
+    allowed = scoped_outlet_ids(current_user, db)
+
     rows = db.query(Inventory).join(Product, Product.id == Inventory.product_id).all()
     by_product: dict[int, list] = {}
     for r in rows:
@@ -122,6 +129,8 @@ def transfer_suggestions(db: Session = Depends(get_db), current_user: User = Dep
         understocked = [e for e in entries if e.warehouse_status in ("low_stock", "out_of_stock")]
         for over in overstocked:
             for under in understocked:
+                if allowed is not None and over.outlet_id not in allowed and under.outlet_id not in allowed:
+                    continue
                 surplus = over.quantity - (over.product.reorder_level * 2)
                 shortage = max(1, under.product.reorder_level - under.quantity)
                 if surplus > 0:
@@ -153,7 +162,7 @@ def create_batch(payload: BatchCreate, db: Session = Depends(get_db), current_us
     inv = db.query(Inventory).filter(Inventory.id == payload.inventory_id).first()
     if not inv:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Inventory record not found")
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     if allowed is not None and inv.outlet_id not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
 
@@ -176,7 +185,7 @@ def list_batches(
     current_user: User = Depends(get_current_user),
 ):
     """AI feature: Expiry Tracking / Expiry Prediction — list batches, optionally filtered to those expiring soon."""
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(InventoryBatch).join(Inventory, Inventory.id == InventoryBatch.inventory_id)
     if allowed is not None:
         query = query.filter(Inventory.outlet_id.in_(allowed))
@@ -206,7 +215,7 @@ def inventory_value(outlet_id: Optional[int] = None, db: Session = Depends(get_d
     cost price. Turnover = (units sold in the last 90 days) / (average
     on-hand quantity) — a standard turnover approximation.
     """
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Inventory).join(Product, Product.id == Inventory.product_id)
     if allowed is not None:
         query = query.filter(Inventory.outlet_id.in_(allowed))

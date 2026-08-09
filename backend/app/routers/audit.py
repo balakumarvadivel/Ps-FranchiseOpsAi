@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/v1/audits", tags=["Audit Agent"])
 @router.get("", response_model=list[AuditOut])
 def list_audits(outlet_id: Optional[int] = None, status_filter: Optional[str] = None,
                  db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Audit)
     if allowed is not None:
         query = query.filter(Audit.outlet_id.in_(allowed))
@@ -31,7 +31,7 @@ def list_audits(outlet_id: Optional[int] = None, status_filter: Optional[str] = 
 
 @router.get("/pending", response_model=list[AuditOut])
 def pending_audits(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Audit).filter(Audit.status != "completed")
     if allowed is not None:
         query = query.filter(Audit.outlet_id.in_(allowed))
@@ -40,7 +40,10 @@ def pending_audits(db: Session = Depends(get_db), current_user: User = Depends(g
 
 @router.post("", response_model=AuditOut, status_code=status.HTTP_201_CREATED,
              dependencies=[Depends(require_role("admin", "regional_manager"))])
-def schedule_audit(payload: AuditCreate, db: Session = Depends(get_db)):
+def schedule_audit(payload: AuditCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    allowed = scoped_outlet_ids(current_user, db)
+    if allowed is not None and payload.outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
     audit = Audit(**payload.model_dump(), status="pending")
     db.add(audit)
     db.commit()
@@ -50,10 +53,14 @@ def schedule_audit(payload: AuditCreate, db: Session = Depends(get_db)):
 
 @router.put("/{audit_id}/complete", response_model=AuditOut,
             dependencies=[Depends(require_role("admin", "regional_manager"))])
-def complete_audit(audit_id: int, payload: AuditComplete, db: Session = Depends(get_db)):
+def complete_audit(audit_id: int, payload: AuditComplete, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     audit = db.query(Audit).filter(Audit.id == audit_id).first()
     if not audit:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Audit not found")
+    allowed = scoped_outlet_ids(current_user, db)
+    if allowed is not None and audit.outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
+
     audit.completed_date = payload.completed_date
     audit.compliance_score = payload.compliance_score
     audit.status = "completed"
@@ -70,9 +77,13 @@ def complete_audit(audit_id: int, payload: AuditComplete, db: Session = Depends(
 
 @router.post("/reports", response_model=AuditReportOut, status_code=status.HTTP_201_CREATED,
              dependencies=[Depends(require_role("admin", "regional_manager"))])
-def add_audit_finding(payload: AuditReportCreate, db: Session = Depends(get_db)):
-    if not db.query(Audit).filter(Audit.id == payload.audit_id).first():
+def add_audit_finding(payload: AuditReportCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    audit = db.query(Audit).filter(Audit.id == payload.audit_id).first()
+    if not audit:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Audit not found")
+    allowed = scoped_outlet_ids(current_user, db)
+    if allowed is not None and audit.outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet's audits")
     report = AuditReport(**payload.model_dump())
     db.add(report)
     db.commit()
@@ -82,15 +93,24 @@ def add_audit_finding(payload: AuditReportCreate, db: Session = Depends(get_db))
 
 @router.get("/{audit_id}/reports", response_model=list[AuditReportOut])
 def get_audit_reports(audit_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    audit = db.query(Audit).filter(Audit.id == audit_id).first()
+    if not audit:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Audit not found")
+    allowed = scoped_outlet_ids(current_user, db)
+    if allowed is not None and audit.outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet's audits")
     return db.query(AuditReport).filter(AuditReport.audit_id == audit_id).all()
 
 
 @router.put("/reports/{report_id}/resolve", response_model=AuditReportOut,
             dependencies=[Depends(require_role("admin", "regional_manager", "outlet_manager"))])
-def resolve_audit_finding(report_id: int, db: Session = Depends(get_db)):
+def resolve_audit_finding(report_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     report = db.query(AuditReport).filter(AuditReport.id == report_id).first()
     if not report:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Finding not found")
+    allowed = scoped_outlet_ids(current_user, db)
+    if allowed is not None and report.audit.outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet's audits")
     report.resolved = True
     db.commit()
     db.refresh(report)
@@ -103,6 +123,9 @@ def get_audit_risk(audit_id: int, db: Session = Depends(get_db), current_user: U
     audit = db.query(Audit).filter(Audit.id == audit_id).first()
     if not audit:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Audit not found")
+    allowed = scoped_outlet_ids(current_user, db)
+    if allowed is not None and audit.outlet_id not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet's audits")
     risk_data = compute_audit_risk(db, audit)
     risk_data["recommendation"] = compliance_recommendation(risk_data)
     return risk_data
@@ -111,7 +134,7 @@ def get_audit_risk(audit_id: int, db: Session = Depends(get_db), current_user: U
 @router.get("/risk/overview")
 def risk_overview(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Network-wide risk dashboard: every completed audit's risk score, sorted highest-risk first."""
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Audit).filter(Audit.status == "completed")
     if allowed is not None:
         query = query.filter(Audit.outlet_id.in_(allowed))
@@ -128,7 +151,7 @@ def risk_overview(db: Session = Depends(get_db), current_user: User = Depends(ge
 @router.get("/compliance/trend")
 def compliance_trend(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Compliance score over time — powers the Audit Score Trend chart."""
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Audit).filter(Audit.status == "completed", Audit.completed_date.isnot(None))
     if allowed is not None:
         query = query.filter(Audit.outlet_id.in_(allowed))
@@ -148,7 +171,7 @@ def compliance_anomalies(db: Session = Depends(get_db), current_user: User = Dep
     network's typical range, which is a different (more robust to a few bad
     outliers) signal than the risk score alone.
     """
-    allowed = scoped_outlet_ids(current_user)
+    allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Audit).filter(Audit.status == "completed", Audit.compliance_score.isnot(None))
     if allowed is not None:
         query = query.filter(Audit.outlet_id.in_(allowed))
