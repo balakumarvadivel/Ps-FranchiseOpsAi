@@ -1,11 +1,12 @@
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, scoped_outlet_ids
+from app.core.pagination import Pagination, paginate_with_headers
 from app.database import get_db
 from app.models.user import User
 from app.models.inventory import Inventory, Product, Supplier, InventoryBatch
@@ -32,8 +33,10 @@ def _recompute_status(quantity: int, reorder_level: int) -> str:
 
 @router.get("", response_model=list[InventoryOut])
 def list_inventory(
+    response: Response,
     outlet_id: Optional[int] = None,
     warehouse_status: Optional[str] = None,
+    pagination: Pagination = Depends(),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -46,7 +49,7 @@ def list_inventory(
     if warehouse_status:
         query = query.filter(Inventory.warehouse_status == warehouse_status)
 
-    rows = query.all()
+    rows = paginate_with_headers(query, pagination, response)
     return [
         InventoryOut(
             id=r.id, outlet_id=r.outlet_id, product_id=r.product_id, quantity=r.quantity,

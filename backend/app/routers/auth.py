@@ -7,12 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.core.security import hash_password, verify_password, create_access_token, hash_reset_token
+from app.core.rate_limit import login_rate_limit, register_rate_limit, forgot_password_rate_limit
 from app.database import get_db
 from app.models.user import User, Role, Region
 from app.schemas.auth import (
     RegisterRequest, LoginRequest, ForgotPasswordRequest, ResetPasswordRequest,
     TokenResponse, UserOut,
 )
+from app.services.email_service import send_password_reset_email
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
@@ -24,7 +26,8 @@ def _user_to_out(user: User) -> UserOut:
     )
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(register_rate_limit)])
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email already registered")
@@ -58,7 +61,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     return TokenResponse(access_token=token, user=_user_to_out(user))
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(login_rate_limit)])
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """
     Note: uses OAuth2PasswordRequestForm (username + password fields) so this
@@ -76,7 +79,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     return TokenResponse(access_token=token, user=_user_to_out(user))
 
 
-@router.post("/login-json", response_model=TokenResponse)
+@router.post("/login-json", response_model=TokenResponse, dependencies=[Depends(login_rate_limit)])
 def login_json(payload: LoginRequest, db: Session = Depends(get_db)):
     """JSON-friendly login for the React frontend (axios POST with JSON body)."""
     user = db.query(User).filter(User.email == payload.email).first()
@@ -89,7 +92,7 @@ def login_json(payload: LoginRequest, db: Session = Depends(get_db)):
     return TokenResponse(access_token=token, user=_user_to_out(user))
 
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", dependencies=[Depends(forgot_password_rate_limit)])
 def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     # Always return a generic message — never reveal whether the email exists.
@@ -102,10 +105,15 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
     user.reset_token_expires = datetime.now(timezone.utc) + timedelta(minutes=30)
     db.commit()
 
-    # In production: email `raw_token` via SES/SendGrid/etc. and return only
-    # the generic message below. Only the HASH is ever persisted to the DB —
-    # returned here in the response (not stored) purely because there's no
-    # mail server wired up in this demo build.
+    emailed = send_password_reset_email(user.email, raw_token)
+    if emailed:
+        # Real email was sent — never leak the token in the API response too.
+        return generic_response
+
+    # SMTP isn't configured in this environment — fall back to returning the
+    # raw token directly so the flow is still testable end-to-end without a
+    # mail account. Clearly marked as a dev-only shortcut, not something to
+    # ship with SMTP unconfigured in a real deployment.
     return {**generic_response, "dev_reset_token": raw_token}
 
 

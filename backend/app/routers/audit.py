@@ -1,10 +1,11 @@
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_role, scoped_outlet_ids
+from app.core.pagination import Pagination, paginate_with_headers
 from app.database import get_db
 from app.models.user import User
 from app.models.marketing_audit import Audit, AuditReport
@@ -16,7 +17,8 @@ router = APIRouter(prefix="/api/v1/audits", tags=["Audit Agent"])
 
 
 @router.get("", response_model=list[AuditOut])
-def list_audits(outlet_id: Optional[int] = None, status_filter: Optional[str] = None,
+def list_audits(response: Response, outlet_id: Optional[int] = None, status_filter: Optional[str] = None,
+                 pagination: Pagination = Depends(),
                  db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Audit)
@@ -26,7 +28,7 @@ def list_audits(outlet_id: Optional[int] = None, status_filter: Optional[str] = 
         query = query.filter(Audit.outlet_id == outlet_id)
     if status_filter:
         query = query.filter(Audit.status == status_filter)
-    return query.order_by(Audit.scheduled_date.desc()).all()
+    return paginate_with_headers(query.order_by(Audit.scheduled_date.desc()), pagination, response)
 
 
 @router.get("/pending", response_model=list[AuditOut])

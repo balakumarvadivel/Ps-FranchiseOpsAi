@@ -1,9 +1,10 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_role, scoped_outlet_ids
+from app.core.pagination import Pagination, paginate_with_headers
 from app.database import get_db
 from app.models.user import User
 from app.models.marketing_audit import MarketingCampaign
@@ -26,8 +27,8 @@ def _to_out(c: MarketingCampaign) -> CampaignOut:
 
 
 @router.get("/campaigns", response_model=list[CampaignOut])
-def list_campaigns(outlet_id: Optional[int] = None, db: Session = Depends(get_db),
-                    current_user: User = Depends(get_current_user)):
+def list_campaigns(response: Response, outlet_id: Optional[int] = None, pagination: Pagination = Depends(),
+                    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     allowed = scoped_outlet_ids(current_user, db)
     query = db.query(MarketingCampaign)
     if allowed is not None:
@@ -38,7 +39,8 @@ def list_campaigns(outlet_id: Optional[int] = None, db: Session = Depends(get_db
         if allowed is not None and outlet_id not in allowed:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this outlet")
         query = query.filter(MarketingCampaign.outlet_id == outlet_id)
-    return [_to_out(c) for c in query.order_by(MarketingCampaign.start_date.desc()).all()]
+    rows = paginate_with_headers(query.order_by(MarketingCampaign.start_date.desc()), pagination, response)
+    return [_to_out(c) for c in rows]
 
 
 @router.post("/campaigns", response_model=CampaignOut, status_code=status.HTTP_201_CREATED,

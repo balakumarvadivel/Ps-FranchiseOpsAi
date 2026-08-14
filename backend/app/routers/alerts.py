@@ -1,9 +1,10 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_role, scoped_outlet_ids
+from app.core.pagination import Pagination, paginate_with_headers
 from app.database import get_db
 from app.models.user import User
 from app.models.ai import Notification, Alert
@@ -15,12 +16,12 @@ router = APIRouter(prefix="/api/v1", tags=["Notifications & Alerts"])
 
 # --- Notifications (per logged-in user) -----------------------------------
 @router.get("/notifications", response_model=list[NotificationOut])
-def list_notifications(unread_only: bool = False, db: Session = Depends(get_db),
-                        current_user: User = Depends(get_current_user)):
+def list_notifications(response: Response, unread_only: bool = False, pagination: Pagination = Depends(),
+                        db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     query = db.query(Notification).filter(Notification.user_id == current_user.id)
     if unread_only:
         query = query.filter(Notification.is_read.is_(False))
-    return query.order_by(Notification.created_at.desc()).all()
+    return paginate_with_headers(query.order_by(Notification.created_at.desc()), pagination, response)
 
 
 @router.put("/notifications/{notification_id}/read")
@@ -46,9 +47,9 @@ def mark_all_notifications_read(db: Session = Depends(get_db), current_user: Use
 
 # --- Alerts Center (organization-wide, scoped by role) ----------------------
 @router.get("/alerts", response_model=list[AlertOut])
-def list_alerts(severity: Optional[str] = None, alert_type: Optional[str] = None,
-                 unread_only: bool = False, db: Session = Depends(get_db),
-                 current_user: User = Depends(get_current_user)):
+def list_alerts(response: Response, severity: Optional[str] = None, alert_type: Optional[str] = None,
+                 unread_only: bool = False, pagination: Pagination = Depends(),
+                 db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     allowed = scoped_outlet_ids(current_user, db)
     query = db.query(Alert)
     if allowed is not None:
@@ -59,7 +60,7 @@ def list_alerts(severity: Optional[str] = None, alert_type: Optional[str] = None
         query = query.filter(Alert.type == alert_type)
     if unread_only:
         query = query.filter(Alert.is_read.is_(False))
-    return query.order_by(Alert.created_at.desc()).all()
+    return paginate_with_headers(query.order_by(Alert.created_at.desc()), pagination, response)
 
 
 @router.put("/alerts/{alert_id}/read")
