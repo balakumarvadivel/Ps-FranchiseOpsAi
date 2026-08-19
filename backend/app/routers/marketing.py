@@ -19,9 +19,10 @@ router = APIRouter(prefix="/api/v1/marketing", tags=["Marketing Agent"])
 
 def _to_out(c: MarketingCampaign) -> CampaignOut:
     return CampaignOut(
-        id=c.id, outlet_id=c.outlet_id, name=c.name, channel=c.channel, start_date=c.start_date,
-        end_date=c.end_date, budget=float(c.budget), ad_cost=float(c.ad_cost),
+        id=c.id, outlet_id=c.outlet_id, name=c.name, channel=c.channel, campaign_type=c.campaign_type,
+        start_date=c.start_date, end_date=c.end_date, budget=float(c.budget), ad_cost=float(c.ad_cost),
         revenue_generated=float(c.revenue_generated), customer_reach=c.customer_reach,
+        leads=c.leads or 0, conversions=c.conversions or 0, conversion_rate_percent=c.conversion_rate_percent,
         coupon_redemptions=c.coupon_redemptions, status=c.status, roi_percent=c.roi_percent,
     )
 

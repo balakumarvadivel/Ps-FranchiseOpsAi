@@ -225,12 +225,15 @@ CREATE TABLE marketing_campaigns (
     outlet_id       INTEGER REFERENCES outlets(id),         -- NULL = network-wide campaign
     name            VARCHAR(150) NOT NULL,
     channel         VARCHAR(50),                            -- social | print | in-store | email
+    campaign_type   VARCHAR(50) DEFAULT 'promotional',       -- promotional | seasonal | loyalty | launch
     start_date      DATE NOT NULL,
     end_date        DATE,
     budget          NUMERIC(12,2) NOT NULL,
     ad_cost         NUMERIC(12,2) DEFAULT 0,
     revenue_generated NUMERIC(14,2) DEFAULT 0,
     customer_reach  INTEGER DEFAULT 0,
+    leads           INTEGER DEFAULT 0,
+    conversions     INTEGER DEFAULT 0,
     coupon_code     VARCHAR(30),
     coupon_redemptions INTEGER DEFAULT 0,
     status          VARCHAR(20) DEFAULT 'active',            -- active | completed | paused
@@ -249,6 +252,9 @@ CREATE TABLE audits (
     status          VARCHAR(20) DEFAULT 'pending',           -- pending | completed | overdue
     compliance_score NUMERIC(5,2),
     risk_score      NUMERIC(5,2),
+    verification_score NUMERIC(5,2),                          -- how thoroughly evidence was verified
+    approval_score  NUMERIC(5,2),                              -- reviewer confidence in the audit's findings
+    approval_stage  VARCHAR(30) DEFAULT 'auditor_review',      -- auditor_review | supervisor_review | manager_approval | final_approval | approved | rejected | changes_requested
     auditor_name    VARCHAR(150),
     created_at      TIMESTAMPTZ DEFAULT now()
 );
@@ -263,8 +269,36 @@ CREATE TABLE audit_reports (
     severity        VARCHAR(20) DEFAULT 'low',               -- low | medium | high | critical
     is_violation    BOOLEAN DEFAULT FALSE,
     resolved        BOOLEAN DEFAULT FALSE,
+    responsible_person VARCHAR(150),
+    due_date        DATE,
+    resolution      TEXT,
     created_at      TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE TABLE audit_evidence (
+    id              SERIAL PRIMARY KEY,
+    audit_id        INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    evidence_type   VARCHAR(50) NOT NULL,                     -- photo | document | receipt | checklist | log
+    description     VARCHAR(255),
+    submitted_date  DATE NOT NULL,
+    verification_status VARCHAR(20) DEFAULT 'pending',         -- pending | verified | rejected
+    verification_score NUMERIC(5,2),
+    expiry_date     DATE,                                      -- e.g. a license/certificate that itself expires
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_evidence_audit ON audit_evidence(audit_id);
+
+CREATE TABLE audit_approvals (
+    id              SERIAL PRIMARY KEY,
+    audit_id        INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    stage           VARCHAR(30) NOT NULL,                      -- auditor_review | supervisor_review | manager_approval | final_approval
+    approver_name   VARCHAR(150),
+    status          VARCHAR(20) DEFAULT 'pending',              -- pending | approved | rejected | changes_requested
+    decided_at      TIMESTAMPTZ,
+    comments        TEXT,
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_approvals_audit ON audit_approvals(audit_id);
 
 -- ---------------------------------------------------------------------
 -- AI, ALERTS, NOTIFICATIONS, RECOMMENDATIONS

@@ -8,12 +8,14 @@ import { AIRecommendationCard } from "../../components/ai/AIRecommendationCard";
 import { CardSkeleton, ErrorState, EmptyState } from "../../components/common/States";
 
 import { recommendationService } from "../../services/aiService";
+import { useToast } from "../../context/ToastContext";
 
 const PRIORITIES = ["all", "critical", "high", "medium", "low"];
 
 export default function Recommendations() {
   const [priority, setPriority] = useState("all");
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const recsQ = useQuery({
     queryKey: ["recommendations", priority],
@@ -22,7 +24,10 @@ export default function Recommendations() {
 
   const refreshMutation = useMutation({
     mutationFn: recommendationService.refresh,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recommendations"] }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+      toast.success(data?.message || "Recommendations refreshed.");
+    },
   });
 
   const statusMutation = useMutation({

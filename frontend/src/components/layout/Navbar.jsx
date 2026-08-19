@@ -16,6 +16,7 @@ export function Navbar({ onMenuClick }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedTerm, setDebouncedTerm] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const searchBoxRef = useRef(null);
 
   useEffect(() => {
@@ -64,6 +65,34 @@ export function Navbar({ onMenuClick }) {
   const results = searchQ.data;
   const hasResults = results && (results.outlets.length || results.products.length || results.employees.length);
 
+  const flatResults = hasResults
+    ? [
+        ...results.outlets.map((o) => ({ key: `o-${o.id}`, label: `${o.name} · ${o.city}`, action: goToOutlet })),
+        ...results.products.map((p) => ({ key: `p-${p.id}`, label: `${p.name} · ${p.sku}`, action: goToInventory })),
+        ...results.employees.map((e) => ({ key: `e-${e.id}`, label: e.name, action: goToStaff })),
+      ]
+    : [];
+
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [debouncedTerm, searchQ.data]);
+
+  const handleSearchKeyDown = (e) => {
+    if (!searchOpen || flatResults.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedIndex((i) => (i + 1) % flatResults.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIndex((i) => (i <= 0 ? flatResults.length - 1 : i - 1));
+    } else if (e.key === "Enter" && highlightedIndex >= 0) {
+      e.preventDefault();
+      flatResults[highlightedIndex].action();
+    } else if (e.key === "Escape") {
+      setSearchOpen(false);
+    }
+  };
+
   return (
     <header className="sticky top-0 z-20 h-16 border-b border-slate-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl flex items-center gap-4 px-4 lg:px-8">
       <button className="lg:hidden" onClick={onMenuClick}>
@@ -76,6 +105,7 @@ export function Navbar({ onMenuClick }) {
           value={searchTerm}
           onChange={(e) => { setSearchTerm(e.target.value); setSearchOpen(true); }}
           onFocus={() => setSearchOpen(true)}
+          onKeyDown={handleSearchKeyDown}
           placeholder="Search outlets, products, staff..."
           className="w-full pl-9 pr-3 py-2 text-sm rounded-xl bg-slate-100/80 dark:bg-slate-800/60 border border-transparent focus:border-blue-400 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
         />
@@ -91,31 +121,43 @@ export function Navbar({ onMenuClick }) {
                 {results.outlets.length > 0 && (
                   <div className="mb-1">
                     <p className="text-[10px] uppercase tracking-wide text-slate-400 px-2 py-1">Outlets</p>
-                    {results.outlets.map((o) => (
-                      <button key={`o-${o.id}`} onClick={goToOutlet} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-left">
-                        <Store size={14} className="text-blue-500 shrink-0" /> {o.name} <span className="text-xs text-slate-400">· {o.city}</span>
-                      </button>
-                    ))}
+                    {results.outlets.map((o) => {
+                      const idx = flatResults.findIndex((r) => r.key === `o-${o.id}`);
+                      return (
+                        <button key={`o-${o.id}`} onClick={goToOutlet}
+                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left ${idx === highlightedIndex ? "bg-blue-50 dark:bg-blue-500/10" : "hover:bg-slate-50 dark:hover:bg-slate-800"}`}>
+                          <Store size={14} className="text-blue-500 shrink-0" /> {o.name} <span className="text-xs text-slate-400">· {o.city}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
                 {results.products.length > 0 && (
                   <div className="mb-1">
                     <p className="text-[10px] uppercase tracking-wide text-slate-400 px-2 py-1">Products</p>
-                    {results.products.map((p) => (
-                      <button key={`p-${p.id}`} onClick={goToInventory} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-left">
-                        <Package size={14} className="text-purple-500 shrink-0" /> {p.name} <span className="text-xs text-slate-400">· {p.sku}</span>
-                      </button>
-                    ))}
+                    {results.products.map((p) => {
+                      const idx = flatResults.findIndex((r) => r.key === `p-${p.id}`);
+                      return (
+                        <button key={`p-${p.id}`} onClick={goToInventory}
+                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left ${idx === highlightedIndex ? "bg-blue-50 dark:bg-blue-500/10" : "hover:bg-slate-50 dark:hover:bg-slate-800"}`}>
+                          <Package size={14} className="text-purple-500 shrink-0" /> {p.name} <span className="text-xs text-slate-400">· {p.sku}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
                 {results.employees.length > 0 && (
                   <div>
                     <p className="text-[10px] uppercase tracking-wide text-slate-400 px-2 py-1">Employees</p>
-                    {results.employees.map((e) => (
-                      <button key={`e-${e.id}`} onClick={goToStaff} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-left">
-                        <UserIcon size={14} className="text-emerald-500 shrink-0" /> {e.name}
-                      </button>
-                    ))}
+                    {results.employees.map((e) => {
+                      const idx = flatResults.findIndex((r) => r.key === `e-${e.id}`);
+                      return (
+                        <button key={`e-${e.id}`} onClick={goToStaff}
+                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-left ${idx === highlightedIndex ? "bg-blue-50 dark:bg-blue-500/10" : "hover:bg-slate-50 dark:hover:bg-slate-800"}`}>
+                          <UserIcon size={14} className="text-emerald-500 shrink-0" /> {e.name}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </>

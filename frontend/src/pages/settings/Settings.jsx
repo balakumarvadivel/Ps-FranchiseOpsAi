@@ -9,6 +9,7 @@ import { CardSkeleton, EmptyState, ErrorState } from "../../components/common/St
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { alertService } from "../../services/aiService";
+import { useToast } from "../../context/ToastContext";
 
 const severityTone = { critical: "danger", high: "warning", medium: "info", low: "success" };
 
@@ -16,12 +17,16 @@ export default function Settings() {
   const { user } = useAuth();
   const { dark, toggleTheme } = useTheme();
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const alertsQ = useQuery({ queryKey: ["alerts", "all"], queryFn: () => alertService.list({}) });
 
   const scanMutation = useMutation({
     mutationFn: alertService.scan,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts"] }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      toast.success(data?.message || "Alert scan complete.");
+    },
   });
 
   const markReadMutation = useMutation({

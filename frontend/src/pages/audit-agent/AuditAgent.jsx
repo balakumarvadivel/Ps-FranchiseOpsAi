@@ -137,6 +137,128 @@ function FindingsPanel() {
   );
 }
 
+const APPROVAL_STAGE_LABELS = {
+  auditor_review: "Auditor Review",
+  supervisor_review: "Supervisor Review",
+  manager_approval: "Manager Approval",
+  final_approval: "Final Approval",
+};
+const evidenceStatusTone = { pending: "warning", verified: "success", rejected: "danger" };
+const approvalStatusTone = { pending: "info", approved: "success", rejected: "danger", changes_requested: "warning" };
+
+function EvidenceApprovalPanel() {
+  const queryClient = useQueryClient();
+  const [auditId, setAuditId] = useState("");
+  const [evidenceForm, setEvidenceForm] = useState({ evidence_type: "document", description: "", submitted_date: "", expiry_date: "" });
+
+  const evidenceQ = useQuery({
+    queryKey: ["audits", "evidence", auditId],
+    queryFn: () => auditService.evidenceFor(auditId),
+    enabled: !!auditId,
+  });
+  const approvalsQ = useQuery({
+    queryKey: ["audits", "approvals", auditId],
+    queryFn: () => auditService.approvalsFor(auditId),
+    enabled: !!auditId,
+  });
+
+  const submitEvidenceMutation = useMutation({
+    mutationFn: () => auditService.submitEvidence({ ...evidenceForm, audit_id: Number(auditId), expiry_date: evidenceForm.expiry_date || null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["audits", "evidence", auditId] });
+      setEvidenceForm({ evidence_type: "document", description: "", submitted_date: "", expiry_date: "" });
+    },
+  });
+
+  const decideMutation = useMutation({
+    mutationFn: ({ approvalId, status }) => auditService.decideApproval(approvalId, { status }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["audits", "approvals", auditId] }),
+  });
+
+  return (
+    <GlassCard className="p-5">
+      <h2 className="font-semibold text-slate-900 dark:text-white mb-1">Evidence &amp; Approval Workflow</h2>
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Auditor Review → Supervisor Review → Manager Approval → Final Approval</p>
+
+      <input placeholder="Audit ID" value={auditId} onChange={(e) => setAuditId(e.target.value)}
+        className="text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 mb-4 w-40" />
+
+      {auditId && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div>
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Approval Stages</p>
+            {approvalsQ.isLoading ? <CardSkeleton /> : approvalsQ.isError ? (
+              <ErrorState message="Couldn't load approval workflow." onRetry={approvalsQ.refetch} />
+            ) : (
+              <div className="space-y-2">
+                {approvalsQ.data.map((a) => (
+                  <div key={a.id} className="flex items-center gap-3 rounded-xl border border-slate-100 dark:border-slate-800 p-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{APPROVAL_STAGE_LABELS[a.stage] || a.stage}</p>
+                      {a.approver_name && <p className="text-[11px] text-slate-400">{a.approver_name}</p>}
+                    </div>
+                    <StatusBadge label={a.status.replace("_", " ")} tone={approvalStatusTone[a.status]} />
+                    {a.status === "pending" && (
+                      <div className="flex gap-1 shrink-0">
+                        <button onClick={() => decideMutation.mutate({ approvalId: a.id, status: "approved" })}
+                          className="text-[10px] font-medium px-2 py-1 rounded-lg border border-emerald-200 dark:border-emerald-500/30 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10">
+                          Approve
+                        </button>
+                        <button onClick={() => decideMutation.mutate({ approvalId: a.id, status: "rejected" })}
+                          className="text-[10px] font-medium px-2 py-1 rounded-lg border border-rose-200 dark:border-rose-500/30 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10">
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Evidence</p>
+            <div className="grid grid-cols-2 gap-2 mb-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+              <select value={evidenceForm.evidence_type} onChange={(e) => setEvidenceForm({ ...evidenceForm, evidence_type: e.target.value })}
+                className="text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5">
+                <option value="document">Document</option>
+                <option value="photo">Photo</option>
+                <option value="receipt">Receipt</option>
+                <option value="checklist">Checklist</option>
+                <option value="log">Log</option>
+              </select>
+              <input type="date" value={evidenceForm.submitted_date} onChange={(e) => setEvidenceForm({ ...evidenceForm, submitted_date: e.target.value })}
+                className="text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5" />
+              <input placeholder="Description" value={evidenceForm.description} onChange={(e) => setEvidenceForm({ ...evidenceForm, description: e.target.value })}
+                className="text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 col-span-2" />
+              <button onClick={() => submitEvidenceMutation.mutate()} disabled={!evidenceForm.submitted_date || submitEvidenceMutation.isPending}
+                className="col-span-2 text-xs font-medium py-1.5 rounded-lg text-white bg-gradient-to-r from-blue-600 to-purple-600 disabled:opacity-50">
+                {submitEvidenceMutation.isPending ? "Submitting..." : "Submit Evidence"}
+              </button>
+            </div>
+
+            {evidenceQ.isLoading ? <CardSkeleton /> : evidenceQ.isError ? (
+              <ErrorState message="Couldn't load evidence." onRetry={evidenceQ.refetch} />
+            ) : evidenceQ.data.length === 0 ? <EmptyState title="No evidence submitted yet" /> : (
+              <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                {evidenceQ.data.map((ev) => (
+                  <div key={ev.id} className="flex items-center gap-3 rounded-xl border border-slate-100 dark:border-slate-800 p-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-slate-800 dark:text-slate-100 capitalize">{ev.evidence_type}{ev.description ? ` — ${ev.description}` : ""}</p>
+                      <p className="text-[11px] text-slate-400">Submitted {ev.submitted_date}{ev.expiry_date ? ` · Expires ${ev.expiry_date}` : ""}</p>
+                    </div>
+                    <StatusBadge label={ev.verification_status} tone={evidenceStatusTone[ev.verification_status]} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </GlassCard>
+  );
+}
+
 export default function AuditAgent() {
   const auditsQ = useQuery({ queryKey: ["audits", "list"], queryFn: () => auditService.list({}) });
   const pendingQ = useQuery({ queryKey: ["audits", "pending"], queryFn: auditService.pending });
@@ -194,6 +316,8 @@ export default function AuditAgent() {
       </GlassCard>
 
       <FindingsPanel />
+
+      <EvidenceApprovalPanel />
 
       <GlassCard className="p-5">
         <h2 className="font-semibold text-slate-900 dark:text-white mb-1">All Audits</h2>

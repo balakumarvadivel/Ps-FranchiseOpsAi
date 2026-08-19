@@ -24,6 +24,9 @@ Everything from the original spec is now built:
 | Inventory: suppliers, batch/expiry tracking, value/turnover | ✅ Done |
 | Dashboard: profit trend, category performance, regional performance, cross-domain summary cards | ✅ Done |
 | Anomaly detection (z-score sales, IQR audit compliance) | ✅ Done — wired into real endpoints, not just written and unused |
+| Rich demo data (10 outlets, 42 products, batch/expiry scenarios, 10 campaigns, full audit workflow) | ✅ Done — `database/seed.sql` + `backend/seed.py` idempotent runner |
+| Audit evidence + 4-stage approval workflow (auditor → supervisor → manager → final) | ✅ Done — new tables, endpoints, and a frontend panel |
+| Toast notifications, pagination (backend), search keyboard nav | ✅ Done |
 
 
 

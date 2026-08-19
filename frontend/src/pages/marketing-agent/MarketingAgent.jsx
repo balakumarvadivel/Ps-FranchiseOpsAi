@@ -117,6 +117,8 @@ export default function MarketingAgent() {
               { key: "channel", label: "Channel", sortable: true },
               { key: "budget", label: "Budget", sortable: true, render: (r) => compactCurrency(r.budget) },
               { key: "revenue_generated", label: "Revenue", sortable: true, render: (r) => compactCurrency(r.revenue_generated) },
+              { key: "leads", label: "Leads", sortable: true },
+              { key: "conversion_rate_percent", label: "Conv. Rate", sortable: true, render: (r) => `${r.conversion_rate_percent}%` },
               { key: "roi_percent", label: "ROI %", sortable: true, render: (r) => `${r.roi_percent}%` },
               { key: "status", label: "Status" },
             ]}
