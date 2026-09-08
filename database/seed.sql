@@ -147,7 +147,7 @@ SELECT o.id, 'Employee ' || o.id || '-' || gs,
        (ARRAY['Cashier','Chef','Manager','Server','Cleaner'])[1 + (gs % 5)],
        CURRENT_DATE - ((gs * 30) || ' days')::interval,
        'active'
-FROM outlets o CROSS JOIN generate_series(1, 5) gs
+FROM outlets o CROSS JOIN generate_series(1, 8) gs
 ON CONFLICT DO NOTHING;
 
 INSERT INTO attendance (employee_id, date, status)
@@ -196,7 +196,16 @@ VALUES
 (7,    'Hyderabad Launch Week',       'social',   'launch',      CURRENT_DATE - 90, CURRENT_DATE - 75, 60000, 45000,  52000, 20000, 2200, 180,  'HYDNEW',    180, 'completed'),
 (8,    'Pune Student Discount',       'in-store', 'promotional', CURRENT_DATE - 14, CURRENT_DATE + 16, 15000,  9000,  38000, 6000,  900,  310,  'STUDENT10', 310, 'active'),
 (9,    'Chandigarh Grand Opening',    'print',    'launch',      CURRENT_DATE - 200, CURRENT_DATE - 185, 70000, 55000, 61000, 25000, 3000, 220,  'CHDOPEN',   220, 'completed'),
-(NULL, 'Network-wide Referral Push',  'email',    'loyalty',     CURRENT_DATE - 7,  CURRENT_DATE + 23, 20000,  8000,  29000, 7000,  1100, 260,  'REFER2026', 260, 'active')
+(NULL, 'Network-wide Referral Push',  'email',    'loyalty',     CURRENT_DATE - 7,  CURRENT_DATE + 23, 20000,  8000,  29000, 7000,  1100, 260,  'REFER2026', 260, 'active'),
+-- Second wave — covers the remaining outlets and adds repeat campaigns for the busiest ones
+(6,    'Madurai Community Meetup',    'in-store', 'promotional', CURRENT_DATE - 18, CURRENT_DATE - 3,  12000,  7000,  21000, 4000,  650,  140,  'MDU10',     140, 'completed'),
+(10,   'Kolkata Park Street Preview', 'social',   'launch',      CURRENT_DATE - 12, CURRENT_DATE + 18, 45000, 22000,  33000, 14000, 1900, 260,  'PARKPRE',   260, 'active'),
+(1,    'Chennai Loyalty Round 2',     'email',    'loyalty',     CURRENT_DATE - 65, CURRENT_DATE - 35, 18000,  9000,  47000, 8500,  1300, 610,  'LOYAL2X',   610, 'completed'),
+(2,    'Bengaluru Brunch Weekends',   'social',   'seasonal',    CURRENT_DATE - 50, CURRENT_DATE - 20, 28000, 24000,  55000, 13000, 1700, 380,  'BRUNCH15',  380, 'completed'),
+(3,    'Mumbai Monsoon Combo 2.0',    'in-store', 'seasonal',    CURRENT_DATE - 8,  CURRENT_DATE + 22, 22000, 11000,  19000, 5000,  700,  95,   'MON2X',     95,  'active'),
+(5,    'Kolkata New Year Push',       'print',    'seasonal',    CURRENT_DATE - 300, CURRENT_DATE - 285, 32000, 29000, 36000, 9000,  1200, 155,  'NY2025',    155, 'completed'),
+(7,    'Hyderabad Anniversary Sale',  'social',   'promotional', CURRENT_DATE - 3,  CURRENT_DATE + 27, 26000, 10000,  14000, 6000,  800,  70,   'ANNIV5',    70,  'active'),
+(NULL, 'National Loyalty Tier Launch','email',    'loyalty',     CURRENT_DATE - 120, CURRENT_DATE - 90, 55000, 20000,  88000, 30000, 3600, 890,  'TIERUP',    890, 'completed')
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------
@@ -212,7 +221,18 @@ INSERT INTO audits (outlet_id, scheduled_date, completed_date, status, complianc
 (7,  CURRENT_DATE - 55,  CURRENT_DATE - 52, 'completed', 79.0, 28.0, 80.0, 76.0, 'supervisor_review',  'R. Krishnan'),
 (8,  CURRENT_DATE - 15,  NULL,              'pending',   NULL, NULL, NULL, NULL, 'auditor_review',     NULL),
 (9,  CURRENT_DATE - 70,  CURRENT_DATE - 67, 'completed', 96.0, 6.0,  97.0, 95.0, 'approved',           'R. Krishnan'),
-(10, CURRENT_DATE - 5,   NULL,              'pending',   NULL, NULL, NULL, NULL, 'auditor_review',     NULL)
+(10, CURRENT_DATE - 5,   NULL,              'pending',   NULL, NULL, NULL, NULL, 'auditor_review',     NULL),
+-- Second, older audit per outlet — gives every outlet an audit history, not just one row
+(1,  CURRENT_DATE - 220, CURRENT_DATE - 217, 'completed', 85.0, 20.0, 86.0, 82.0, 'approved',           'K. Ramesh'),
+(2,  CURRENT_DATE - 210, CURRENT_DATE - 206, 'completed', 90.0, 14.0, 91.0, 88.0, 'approved',           'K. Ramesh'),
+(3,  CURRENT_DATE - 240, CURRENT_DATE - 236, 'completed', 72.0, 32.0, 74.0, 70.0, 'approved',           'S. Narayanan'),
+(4,  CURRENT_DATE - 250, CURRENT_DATE - 246, 'completed', 58.0, 48.0, 60.0, 55.0, 'approved',           'P. Iyer'),
+(5,  CURRENT_DATE - 200, CURRENT_DATE - 196, 'completed', 81.0, 22.0, 83.0, 79.0, 'approved',           'R. Krishnan'),
+(6,  CURRENT_DATE - 260, CURRENT_DATE - 256, 'completed', 49.0, 62.0, 52.0, 45.0, 'approved',           'P. Iyer'),
+(7,  CURRENT_DATE - 230, CURRENT_DATE - 226, 'completed', 76.0, 30.0, 78.0, 74.0, 'approved',           'R. Krishnan'),
+(8,  CURRENT_DATE - 190, CURRENT_DATE - 186, 'completed', 88.0, 16.0, 89.0, 85.0, 'approved',           'S. Narayanan'),
+(9,  CURRENT_DATE - 270, CURRENT_DATE - 266, 'completed', 93.0, 9.0,  94.0, 91.0, 'approved',           'K. Ramesh'),
+(10, CURRENT_DATE - 180, CURRENT_DATE - 176, 'completed', 68.0, 40.0, 70.0, 65.0, 'approved',           'P. Iyer')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO audit_reports (audit_id, category, finding, severity, is_violation, resolved, responsible_person, due_date, resolution) VALUES
